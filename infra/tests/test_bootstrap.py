@@ -60,6 +60,7 @@ class BootstrapTests(unittest.TestCase):
             root=Path(directory)/'runtime';root.mkdir();prepared=Path(directory)/'prepared'
             values={'backend/test':b'first','gateway/test':b'second','redis/test':b'third'}
             (root/'backend').mkdir(mode=0o750)
+            (root/'backend').chmod(0o750)
             (root/'backend/test').write_bytes(b'first'); (root/'backend/test').chmod(0o640)
             original_inode=(root/'backend/test').stat().st_ino
             # Ownership policy has separate negative tests; fixture files use the current UID.
@@ -71,10 +72,16 @@ class BootstrapTests(unittest.TestCase):
                     fields=list(result);fields[5]=10001
                     return os.stat_result(fields)
                 with patch.object(Path,'stat',info), patch.object(Path,'lstat',lambda path:info(path,follow_symlinks=False)):
-                    b.install(values,root,prepared)
+                    previous_umask=os.umask(0o077)
+                    try:
+                        b.install(values,root,prepared)
+                    finally:
+                        os.umask(previous_umask)
             self.assertEqual((root/'backend/test').stat().st_ino,original_inode)
             self.assertEqual((root/'backend/test').read_bytes(),b'first')
             self.assertEqual((root/'redis/test').stat().st_mode&0o777,0o640)
+            for component in ('backend','gateway','redis'):
+                self.assertEqual((root/component).stat().st_mode&0o777,0o750)
             with patch('bootstrap.trusted',side_effect=lambda p,**kw:Path(p)):
                 with self.assertRaises(ValueError): b.install(values|{'backend/test':b'changed'},root,Path(directory)/'next')
             self.assertEqual((root/'backend/test').stat().st_ino,original_inode)

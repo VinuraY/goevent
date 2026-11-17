@@ -49,11 +49,11 @@ sudo docker inspect "$MYSQL_CONTAINER" --format '{{json .Mounts}} {{json .Networ
 sudo docker exec "$MYSQL_CONTAINER" id mysql
 mysql_root <<'SQL'
 SELECT COUNT(*) AS tables_before FROM information_schema.tables WHERE table_schema='goevent_db';
-SHOW VARIABLES WHERE Variable_name IN ('ssl_ca','ssl_cert','ssl_key','tls_version','require_secure_transport','mandatory_roles');
+SHOW VARIABLES WHERE Variable_name IN ('ssl_ca','ssl_cert','ssl_key','tls_version','require_secure_transport','mandatory_roles','partial_revokes');
 SELECT user,host,account_locked,ssl_type FROM mysql.user WHERE user IN ('goevent_app','goevent_migration');
 SHOW GRANTS FOR 'goevent_app'@'%';
 SELECT PRIVILEGE_TYPE,IS_GRANTABLE FROM information_schema.SCHEMA_PRIVILEGES
- WHERE GRANTEE=CONCAT(CHAR(39),'goevent_app',CHAR(39),'@',CHAR(39),'%',CHAR(39)) AND TABLE_SCHEMA='goevent_db';
+ WHERE GRANTEE=CONCAT(CHAR(39),'goevent_app',CHAR(39),'@',CHAR(39),'%',CHAR(39)) AND TABLE_SCHEMA=CONCAT('goevent',CHAR(92),'_db');
 SQL
 ```
 
@@ -197,9 +197,11 @@ No service-unit/bootstrap-script change is proposed.
 
 ## 3. Approved certificate activation, transport still OFF
 
-The install/rollback commands below assume the original Compose is a regular,
-non-symlink root:root 0600 file; verify that metadata first. If it differs, stop and
-review commands preserving its actual ownership/mode rather than changing them.
+Live inspection on 2026-11-17 confirmed the original Compose is a regular,
+non-symlink root:root 0644 file. The install/rollback commands below preserve that
+metadata; they do not tighten permissions as part of the TLS change. The private
+review copy remains root:root 0600. If live metadata differs at activation, stop
+and review commands preserving the newly observed ownership/mode.
 Only after backup/restore, exact candidate comparison, restart behavior and
 rollback approval: replace the protected Compose with the reviewed candidate,
 then use its existing owning service. These commands are deliberately conditional
@@ -207,8 +209,8 @@ on that **separate** approval:
 
 ```sh
 sudo test ! -L /opt/goevent/compose.yml
-sudo test "$(sudo stat -c '%u:%g:%a' /opt/goevent/compose.yml)" = '0:0:600'
-sudo install -o root -g root -m 0600 /root/goevent-mysql-review/compose.candidate.yml /opt/goevent/compose.yml
+sudo test "$(sudo stat -c '%u:%g:%a' /opt/goevent/compose.yml)" = '0:0:644'
+sudo install -o root -g root -m 0644 /root/goevent-mysql-review/compose.candidate.yml /opt/goevent/compose.yml
 sudo systemctl restart goevent.service
 sudo systemctl is-active goevent.service
 sudo docker inspect "$MYSQL_CONTAINER" --format '{{.State.Health.Status}}'
@@ -244,10 +246,18 @@ For `%` (only if separately approved for the private network), the reviewed gran
 
 ```sql
 GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES
- ON `goevent_db`.* TO 'goevent_migration'@'%';
+ ON `goevent\_db`.* TO 'goevent_migration'@'%';
 ```
 
-No global privilege, GRANT OPTION or DROP privilege is needed by current V1–V5.
+Live inspection confirmed `partial_revokes=OFF`. The backslash in database-level
+GRANT/REVOKE names is required to make the underscore literal; backticks alone do
+not prevent wildcard grants. An isolated negative test demonstrated that an
+unescaped grant also authorized `goeventXdb`. Keep the escaped scope and stop for
+review if the server's partial-revokes mode changes; do not change that global
+setting as part of this procedure. Metadata inspection uses the stored escaped
+schema name. See [MySQL request verification](https://dev.mysql.com/doc/refman/8.4/en/request-access.html).
+
+No global privilege, GRANT OPTION or DROP privilege is needed by current V1–V7.
 Do not mask an unexpectedly existing account with IF NOT EXISTS. Do not print or
 pass its password as a command argument; execute its generated private SQL through
 `mysql_root < /protected/path/migration-account.sql`, after SQL logging/history
@@ -263,7 +273,7 @@ sudo docker exec -i --user 0 "$MYSQL_CONTAINER" mysql --defaults-extra-file="$MI
 ```
 
 Require CURRENT_USER `goevent_migration@<approved-host>`, a non-empty cipher
-and exactly the approved grants. Prove V1–V5 compatibility on an **isolated restored
+and exactly the approved grants. Prove V1–V7 compatibility on an **isolated restored
 clone named goevent_db**, with the migration account and runtime DML account split.
 Keep the real empty database empty: no probe tables, Flyway baseline or actual
 application migration in this maintenance step. Zero-table metadata checks alone
@@ -273,8 +283,8 @@ cannot establish DML/Flyway compatibility.
 and backup/other consumers of goevent_app quiesced or verified compatible:
 
 ```sql
-REVOKE ALL PRIVILEGES ON `goevent_db`.* FROM 'goevent_app'@'%';
-GRANT SELECT, INSERT, UPDATE, DELETE ON `goevent_db`.* TO 'goevent_app'@'%';
+REVOKE ALL PRIVILEGES ON `goevent\_db`.* FROM 'goevent_app'@'%';
+GRANT SELECT, INSERT, UPDATE, DELETE ON `goevent\_db`.* TO 'goevent_app'@'%';
 ALTER USER 'goevent_app'@'%' REQUIRE SSL;
 SHOW GRANTS FOR 'goevent_app'@'%';
 ```
@@ -322,8 +332,8 @@ an owner reboot test proving original secret bootstrap, mounts, TLS and backups.
 - If enforcement breaks a client, use the preserved admin **socket** connection to
   `SET GLOBAL require_secure_transport=OFF;` and restore the approved file setting
   before any restart. OFF does not undo an account's REQUIRE SSL.
-- If reduction breaks a verified client, restore only the known original schema
-  `GRANT ALL PRIVILEGES ON goevent_db.* TO 'goevent_app'@'%';` after approval.
+- If reduction breaks a verified client, restore only the recorded original
+  escaped-schema ALL PRIVILEGES grant after approval (see the SQL block below).
   Restore its **recorded original** TLS requirement, not an assumed REQUIRE NONE.
   Lock the newly created migration account if abandoning the change; do not drop
   users/data automatically. Account/transport changes cannot be rolled back with SQL ROLLBACK.
@@ -331,7 +341,9 @@ an owner reboot test proving original secret bootstrap, mounts, TLS and backups.
 
   ```sh
   # Certificate/config rollback; uses the preserved private original.
-  sudo install -o root -g root -m 0600 /root/goevent-mysql-review/compose.before.yml /opt/goevent/compose.yml
+  sudo test ! -L /opt/goevent/compose.yml
+  sudo test "$(sudo stat -c '%u:%g:%a' /opt/goevent/compose.yml)" = '0:0:644'
+  sudo install -o root -g root -m 0644 /root/goevent-mysql-review/compose.before.yml /opt/goevent/compose.yml
   sudo systemctl restart goevent.service
   sudo systemctl is-active goevent.service
   sudo docker inspect "$MYSQL_CONTAINER" --format '{{.State.Health.Status}}'
@@ -341,7 +353,7 @@ an owner reboot test proving original secret bootstrap, mounts, TLS and backups.
 
   ```sql
   SET GLOBAL require_secure_transport=OFF;
-  GRANT ALL PRIVILEGES ON `goevent_db`.* TO 'goevent_app'@'%';
+  GRANT ALL PRIVILEGES ON `goevent\_db`.* TO 'goevent_app'@'%';
   -- Restore REQUIRE NONE only if baseline ssl_type was empty; otherwise its recorded policy.
   -- Lock goevent_migration at its actual approved host selector if abandoning the change.
   ```

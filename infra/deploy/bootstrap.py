@@ -210,6 +210,7 @@ def install(values, root, prepared):
             directory = root/component
             if not directory.exists():
                 directory.mkdir(mode=0o750); directories.append(directory); os.chown(directory, 0, 10001)
+                directory.chmod(0o750)  # The bootstrap's private umask must not remove service-group access.
             trusted(directory, mode=0o750)
             if directory.stat().st_gid != 10001:
                 raise ValueError('runtime directory requires root:10001')

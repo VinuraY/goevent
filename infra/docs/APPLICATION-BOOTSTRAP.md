@@ -132,7 +132,7 @@ nor changes its password. Apply `REQUIRE SSL` only after existing consumers work
 
 The migration account may be absent. Create it with a **different**, approved
 password and suitable host selector; do not use `CREATE USER IF NOT EXISTS` to hide
-an unknown existing account. Review Flyway V1–V5: the current migration baseline
+an unknown existing account. Review Flyway V1–V7: the current migration baseline
 needs SELECT/INSERT/UPDATE/DELETE, CREATE, ALTER, INDEX and REFERENCES on
 `goevent_db.*`. No global CREATE USER/FILE/SUPER or GRANT OPTION is required.
 Current V5 DROP INDEX runs through ALTER TABLE; it does not justify a blanket
@@ -157,13 +157,19 @@ if not re.fullmatch(r'[0-9a-f]{64}', p):
     raise SystemExit('Expected generated hex password file')
 account = "'goevent_migration'@'" + host + "'"
 sql = "CREATE USER " + account + " IDENTIFIED BY '" + p + "' REQUIRE SSL;\n"
-sql += 'GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON `goevent_db`.* TO ' + account + ';\n'
+sql += 'GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES ON `goevent\\_db`.* TO ' + account + ';\n'
 path = Path('migration-account.sql')
 with path.open('x') as target:
     target.write(sql)
 path.chmod(0o600)
 PY
 ```
+
+The SQL database grant escapes the underscore because live `partial_revokes` is
+OFF. Backticks alone do not restrict a wildcard database grant to this schema.
+Inspect that variable before execution and stop for review if it differs; do not
+change the server setting to accommodate this example. The linked MySQL runbook
+uses the same escaped scope for privilege changes and rollback.
 
 Execute that file only using the existing authorized administrative tool/session,
 with history disabled and SQL audit/log handling reviewed. For an existing account,
