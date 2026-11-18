@@ -13,6 +13,14 @@ backend/gateway/Caddy attestations verified the exact signer/source commit,
 workflow and main ref, rejecting self-hosted builders. Reviewed images were
 pulled into the VM cache without starting containers.
 
+**Do not activate the backend/gateway digests below.** Later full Spring TLS
+checks found that Boot's separate Flyway datasource drops the configured JDBC
+truststore password, the Redis session property prefix is obsolete, and the
+default gateway Redis health probe requires the intentionally denied INFO command.
+PR #74 includes the configuration fixes. Merge the reviewed fixes and obtain new
+trusted-main images before application release;
+the older digests remain provenance evidence, not approved production candidates.
+
 | Component | Digest in acrgoevent.azurecr.io/goevent/<component> |
 | --- | --- |
 | backend | sha256:8575cab20bfc3cd7e9eb201ffa474ec93467aebf3a22f451cec3abd732748207 |
@@ -44,7 +52,7 @@ manifest/migration approval. Never label these images with a newer commit.
 - Existing backup and both prior isolated restore volumes remain preserved.
   Recheck backup creation/verification age against 86,400 seconds before release.
 
-## Bootstrap defect and regression
+## Bootstrap and application-configuration defects
 
 The original helper sets umask 077, then creates service directories with mkdir
 0750; the umask reduces them to 0700, which the helper subsequently rejects.
@@ -55,6 +63,40 @@ non-overwriting publication and cleanup behavior are preserved.
 The regression failed before the fix and passed afterward. All 42 infrastructure
 tests, configuration/schema checks, owner-runbook shell syntax and diff whitespace
 checks passed. No business code, dependency, schema file or image definition changed.
+
+The full Spring startup check also reproduced a migration TLS failure in the
+attested main artifact. The password binds correctly, but Boot configures a
+SimpleDriverDataSource separately before applying Flyway JDBC properties; those
+properties do not reach that datasource. FlywayConfig now merges the configured
+JDBC properties into that existing migration datasource. It does not create or
+replace the runtime datasource, change identities, put the password in a URL or
+weaken TLS. The driver-level regression checks the truststore property, preserved
+connection properties, unchanged URL and migration credentials. The targeted
+backend test and candidate executable packaging passed. New-main publication is
+required after review; the current main backend remains unsuitable for activation.
+
+Boot 4 uses spring.session.data.redis. The old spring.session.redis namespace
+was ignored, so session writes targeted spring:session keys outside the backend
+ACL. The application default and production template now explicitly bind the
+GoEvent namespace and the production template binds configure-action=none using
+the supported prefix. A native Boot property-binding regression checks both.
+ACL keyspace permissions remain unchanged; existing local default-prefix sessions
+will require reauthentication. Production applications have not been started.
+
+The default gateway Redis health contributor issues INFO, which the gateway ACL
+does not permit. The replacement contributor only PINGs the configured authenticated
+TLS connection, closes it, and returns DOWN on errors/empty/unexpected replies.
+It does not disable a health check or grant additional Redis permissions. Both
+health regressions and the full gateway suite passed (four tests total).
+
+The final isolated stack check passed with the locally built PR backend/gateway
+candidates and the production configuration templates. It restored the authenticated
+backup, kept MySQL secure transport ON, used the restricted migration/runtime users,
+and used the actual issued MySQL/Redis certificates and separate Redis ACL identities.
+Backend/gateway startup, routed test/content reads, Redis-backed CSRF token creation,
+explicit credentialed CORS and missing-token rejection passed. This is candidate
+source validation, not attestation of a newly published main image. Production
+requires a successful trusted build after the reviewed application fixes merge.
 
 The fixed helper generated all 16 actual pinned-secret configtree files under
 `/run/goevent-acceptance-6da0930`, separate from the active runtime location.
@@ -119,6 +161,15 @@ Root-only directory:
   public certificate issuance remain activation steps.
 - Bootstrap and operator policy drafts remain disabled; commit-bound migration
   approval is false. No live policy/current pointer/service unit was installed.
+- The distribution GitHub CLI cannot verify attestations. Official CLI 2.104.0 was
+  downloaded and verified against its published archive SHA-256
+  98cb101ad87dbbd3f6b2f2bfcbd43197ccd07643140121d8a9cfaa91eadbc24e, then staged at
+  /opt/goevent/tools/gh-2.104.0/bin/gh without replacing /usr/bin/gh. The release-unit
+  candidate scopes PATH to that binary. All three current-main image attestations
+  passed on the actual VM using temporary existing operator GitHub authentication
+  and fresh Managed Identity/registry caches. No GitHub token file was installed;
+  authorized release needs transient root-only operator authentication. Missing
+  authentication fails verification rather than skipping it.
 
 ## Consolidated owner decision
 

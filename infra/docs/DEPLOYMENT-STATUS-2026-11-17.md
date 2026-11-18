@@ -376,3 +376,13 @@ exact-main Vercel preview are recorded in
 [the coordinated release review](COORDINATED-RELEASE-REVIEW.md).
 That review supersedes earlier main/digest and missing-configuration observations
 where explicitly updated. Production infrastructure changes remain unapproved.
+The later full Spring TLS probe found an additional Flyway datasource-property
+defect in main's attested backend. The review now requires the PR #74 fix and a
+new trusted-main publication before backend activation; earlier provenance/CI
+success does not establish production TLS readiness.
+The complete local TLS stack subsequently reproduced two additional mismatches:
+the old session-property prefix selected a Redis namespace outside the backend ACL,
+and the default gateway health contributor required denied INFO privileges. The
+PR candidates now bind the Boot 4 session prefix and use a PING-only health
+contributor with DOWN/error handling. The final restored-clone stack acceptance
+passed using those local candidates; new trusted-main images are still required.
