@@ -17,7 +17,7 @@ pulled into the VM cache without starting containers.
 checks found that Boot's separate Flyway datasource drops the configured JDBC
 truststore password, the Redis session property prefix is obsolete, and the
 default gateway Redis health probe requires the intentionally denied INFO command.
-PR #74 includes the configuration fixes. Merge the reviewed fixes and obtain new
+PR #75 includes the configuration fixes. Merge the reviewed fixes and obtain new
 trusted-main images before application release;
 the older digests remain provenance evidence, not approved production candidates.
 
@@ -204,3 +204,41 @@ CORS/cookies/CSRF, upload persistence, public HTTPS, post-change backup, contain
 replacement and rollback/reboot acceptance still need execution. The Google
 Console must authorize https://goevent.kyrolabs.dev; real-user login is not proven
 by a matching client ID. Offline CA recovery custody remains an owner task.
+
+
+## Production promotion activation review — 2026-11-18
+
+PR #75 merged as 0dbf37840cf6b2bbee49f192b43d17ffaa201abd. Its trusted
+publication 44250011352 succeeded. The owner-approved MySQL TLS/account split,
+runtime bootstrap, private Redis and public Caddy HTTPS are now active; see the
+November 18 section of DEPLOYMENT-STATUS-2026-11-17.md for actual acceptance.
+The picomatch finding is temporarily accepted through November 25, not patched.
+
+This activation change enables only the promotion workflow's explicit kill
+switch, preserving trusted-main candidate validation, production environment
+review, Azure OIDC, exact private Blob intent delivery and VM operator policy.
+The workflow generator carries the same value so regeneration cannot silently
+restore a different workflow. Merging this change is the owner's review of that
+workflow activation. It does not authorize a live migration or start containers.
+
+After merge, use the successful trusted publication for the resulting main commit;
+do not relabel the earlier image digests. Review the exact candidate, attestations,
+V1–V7 file hashes, rollback_safe=false classification and fresh backup evidence.
+Obtain separate owner approval for that commit-bound migration and backend release.
+Keep VM enabled=false and the migration approval false until approval is recorded.
+
+The goevent-production environment currently prevents self-review and names
+VinuraY as reviewer. An existing authorized collaborator must initiate promotion
+so VinuraY can approve it. This activation does not alter that protection or grant
+a collaborator access. No message is sent to collaborators by this change.
+
+Before delivery, the owner must additionally approve the prepared container IMDS
+firewall guard and resolve the release-intent container's currently Unlocked
+seven-day retention policy; locking is irreversible. Preserve the existing MySQL
+service and the release unit's no-automatic-boot-start behavior. No production
+release is authorized by local preparation or a successful CI run alone.
+
+Rollback of this workflow change is to restore DELIVERY_ENABLED=false in both
+files. Already approved/uploaded intents require disabling the VM operator policy;
+reverting a workflow does not undo database changes or revoke existing blobs.
+The initial schema has no automatic DDL rollback and no previous app revision.

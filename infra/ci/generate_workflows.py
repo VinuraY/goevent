@@ -233,7 +233,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       BUILD_RUN_ID: ${{ inputs.build_run_id }}
       AZURE_ACR_LOGIN_SERVER: ${{ vars.AZURE_ACR_LOGIN_SERVER }}
-      DELIVERY_ENABLED: 'false' # Deliberate repository kill switch; remove only by reviewed activation PR.
+      DELIVERY_ENABLED: 'true' # Owner review of this activation PR is required before merge.
       STORAGE_ACCOUNT: ${{ vars.AZURE_RELEASE_STORAGE_ACCOUNT }}
       STORAGE_CONTAINER: ${{ vars.AZURE_RELEASE_CONTAINER }}
     steps:
