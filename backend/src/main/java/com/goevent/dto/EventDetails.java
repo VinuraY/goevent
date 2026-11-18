@@ -22,8 +22,7 @@ public record EventDetails(
         String bannerPath,
         List<DateSlot> dates,
         List<Link> links,
-        List<String> tags,
-        int revision
+        List<String> tags
 ) {
 
     /** Account that published the event. Email is deliberately not exposed. */

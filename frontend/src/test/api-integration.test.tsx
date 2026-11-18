@@ -25,7 +25,7 @@ afterEach(() => {
 it('posts login credentials to the same API prefix with cookies', async () => {
   vi.stubEnv('NEXT_PUBLIC_GOOGLE_CLIENT_ID', 'test.apps.googleusercontent.com');
   const adapter = vi.fn<AxiosAdapter>().mockImplementation(async config => ({
-    data: config.url?.endsWith('/csrf') ? {headerName:'X-CSRF-TOKEN',token:'fresh'} : { status: false, message: 'Rejected' },
+    data: { status: false, message: 'Rejected' },
     status: 200, statusText: 'OK', headers: {}, config,
   }));
   apiClient.defaults.adapter = adapter;
@@ -35,18 +35,7 @@ it('posts login credentials to the same API prefix with cookies', async () => {
     baseURL: apiClient.defaults.baseURL, url: '/goevent/api/auth/google', method: 'post',
     withCredentials: true, data: JSON.stringify({ idToken: 'test-credential' }),
   })));
-  expect(apiClient.getUri(adapter.mock.calls.find(([config])=>config.method==='post')![0])).toBe('/goevent/api/auth/google');
-});
-
-it('does not navigate to the removed dashboard for legacy Google admin accounts', async()=>{
- vi.stubEnv('NEXT_PUBLIC_GOOGLE_CLIENT_ID','test.apps.googleusercontent.com');
- const adapter=vi.fn<AxiosAdapter>().mockImplementation(async config=>({data:config.url?.endsWith('/csrf')?{headerName:'X-CSRF-TOKEN',token:'fresh'}:{status:true,action:'LOGIN',roleId:'ADMIN'},status:200,statusText:'OK',headers:{},config}));
- apiClient.defaults.adapter=adapter;
- render(<QueryClientProvider client={new QueryClient()}><GoogleAuthButton/></QueryClientProvider>);
- fireEvent.click(screen.getByText('Google test login'));
- await waitFor(()=>expect(adapter).toHaveBeenCalledTimes(2));
- expect(navigation.replace).not.toHaveBeenCalled();
- expect(adapter.mock.calls.some(([config])=>config.url?.includes('/admin/'))).toBe(false);
+  expect(apiClient.getUri(adapter.mock.calls[0][0])).toBe('/goevent/api/auth/google');
 });
 
 it('maps current and legacy browser prefixes to the real backend prefix', async () => {

@@ -19,14 +19,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
-/**
- * Every SQL statement used by the event module.
- *
- * <p>An event is written across several tables ({@code venue}, {@code link},
- * {@code event}, {@code event_has_links}, {@code event_dates},
- * {@code event_has_tags}); the service owns the transaction and this class only
- * performs the statements.</p>
- */
 @Repository
 public class EventRepo {
 
@@ -121,7 +113,7 @@ public class EventRepo {
     // --- public listing --------------------------------------------------
 
     private static final String SUMMARY_SELECT = """
-            SELECT e.id, e.name, e.description, e.revision, c.name AS category,
+            SELECT e.id, e.name, e.description, c.name AS category,
                    a.type AS audience, l.name AS event_level,
                    v.name AS venue_name, v.city AS venue_city,
                    i.path AS image_path,
@@ -141,7 +133,7 @@ public class EventRepo {
     /** Approved events that still have an upcoming date, in the requested order. */
     public List<Map<String, Object>> approvedEvents(int statusId, EventSort sort, int limit) {
         return jdbc.queryForList(
-                SUMMARY_SELECT + " WHERE e.disabled_at IS NULL AND e.event_status_id = ? " + orderBy(sort) + " LIMIT ?",
+                SUMMARY_SELECT + " WHERE e.event_status_id = ? " + orderBy(sort) + " LIMIT ?",
                 statusId, limit);
     }
 
@@ -152,7 +144,7 @@ public class EventRepo {
     public List<Map<String, Object>> approvedEventsForUniversity(int statusId, int universityId, int limit) {
         return jdbc.queryForList(
                 SUMMARY_SELECT
-                        + " WHERE e.disabled_at IS NULL AND e.event_status_id = ?"
+                        + " WHERE e.event_status_id = ?"
                         + " AND EXISTS (SELECT 1 FROM student_detail sd"
                         + " WHERE sd.user_id = e.published_by AND sd.university_id = ?)"
                         + " ORDER BY e.created_at DESC, e.id DESC LIMIT ?",
@@ -164,7 +156,7 @@ public class EventRepo {
         return jdbc.query(
                 "SELECT DISTINCT ed.date FROM event_dates ed"
                         + " JOIN `event` e ON e.id = ed.event_id"
-                        + " WHERE e.disabled_at IS NULL AND e.event_status_id = ? AND ed.date >= CURDATE()"
+                        + " WHERE e.event_status_id = ? AND ed.date >= CURDATE()"
                         + " ORDER BY ed.date",
                 (rs, rowNum) -> rs.getDate(1).toLocalDate(),
                 statusId);
@@ -174,7 +166,7 @@ public class EventRepo {
         return jdbc.queryForList(
                 SUMMARY_SELECT
                         + " JOIN saved_event se ON se.event_id = e.id AND se.user_id = ?"
-                        + " WHERE e.disabled_at IS NULL AND e.event_status_id = ?"
+                        + " WHERE e.event_status_id = ?"
                         + " ORDER BY next_date.date, e.id",
                 userId, statusId);
     }
@@ -199,7 +191,7 @@ public class EventRepo {
      * (LIKE wildcards escaped); the sort comes from a fixed set of SQL fragments.
      */
     public List<Map<String, Object>> searchApproved(int statusId, EventFilter filter, EventSort sort, int limit) {
-        StringBuilder sql = new StringBuilder(SUMMARY_SELECT).append(" WHERE e.disabled_at IS NULL AND e.event_status_id = ?");
+        StringBuilder sql = new StringBuilder(SUMMARY_SELECT).append(" WHERE e.event_status_id = ?");
         List<Object> args = new ArrayList<>();
         args.add(statusId);
 
@@ -269,7 +261,7 @@ public class EventRepo {
 
     /** SQL for one event's full detail row; callers add the status condition they need. */
     private static final String DETAIL_ROW_SQL = """
-            SELECT e.id, e.name, e.description, e.revision, c.name AS category,
+            SELECT e.id, e.name, e.description, c.name AS category,
                    a.type AS audience, l.name AS event_level,
                    v.name AS venue_name, v.address AS venue_address,
                    v.city AS venue_city, v.link AS venue_link,
@@ -289,7 +281,7 @@ public class EventRepo {
     /** One approved event with its category, audience, level, venue and cover image; null when not found. */
     public Map<String, Object> approvedEventRow(long eventId, int statusId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
-                DETAIL_ROW_SQL + " AND e.disabled_at IS NULL AND e.event_status_id = ?", eventId, statusId);
+                DETAIL_ROW_SQL + " AND e.event_status_id = ?", eventId, statusId);
 
         return rows.isEmpty() ? null : rows.get(0);
     }
@@ -330,22 +322,17 @@ public class EventRepo {
     /** Venue and cover-image ownership fields needed before an update. */
     public Map<String, Object> eventOwnerRow(long eventId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT published_by, venue_id, img_id, event_level_id, disabled_at, revision FROM `event` WHERE id=? FOR UPDATE", eventId);
+                "SELECT published_by, venue_id, img_id FROM `event` WHERE id=?", eventId);
 
         return rows.isEmpty() ? null : rows.get(0);
     }
 
     public void updateEvent(long eventId, String name, String description, int categoryId,
-                            int audienceId, LocalDateTime startsAt, LocalDateTime endsAt, Long linkId, int revision) {
-        int changed = jdbc.update(
+                            int audienceId, LocalDateTime startsAt, LocalDateTime endsAt, Long linkId) {
+        jdbc.update(
                 "UPDATE `event` SET name=?, description=?, category_id=?, audience_id=?,"
-                        + " starts_at=?, ends_at=?, link_id=?, event_status_id=2, published_revision_id=NULL, working_revision_id=NULL, revision=revision+1 WHERE id=? AND revision=?",
-                name, description, categoryId, audienceId, startsAt, endsAt, linkId, eventId, revision);
-        if (changed != 1) throw new com.goevent.exception.EventException(org.springframework.http.HttpStatus.CONFLICT, "Event changed; refresh before saving");
-    }
-
-    public boolean hasBookings(long id) {
-        return jdbc.queryForObject("SELECT COUNT(*) FROM booking WHERE event_id=?", Integer.class, id) > 0;
+                        + " starts_at=?, ends_at=?, link_id=? WHERE id=?",
+                name, description, categoryId, audienceId, startsAt, endsAt, linkId, eventId);
     }
 
     public void updateVenue(long venueId, String name, String address, String city, String link) {
@@ -367,7 +354,8 @@ public class EventRepo {
     /** Deletes a link row only when no event still uses it. */
     public void deleteLinkIfUnused(long linkId) {
         jdbc.update(
-                "DELETE FROM link WHERE id=? AND id NOT IN (SELECT link_id FROM event_has_links)",
+                "DELETE FROM link WHERE id=? AND id NOT IN (SELECT link_id FROM event_has_links) "
+                + "AND id NOT IN (SELECT link_id FROM event WHERE link_id IS NOT NULL)",
                 linkId);
     }
 

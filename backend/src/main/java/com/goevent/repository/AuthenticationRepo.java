@@ -119,7 +119,7 @@ public class AuthenticationRepo {
     public int registerOrganizerData(int userId, int organizationId, String position) {
         String query = """
                 INSERT INTO user_has_organize(user_id,registered_date,organization_id,position,access_state)
-                VALUES (?, UTC_TIMESTAMP(), ?, ?, 'APPROVED')
+                VALUES (?, NOW(), ?, ?, 'APPROVED')
                 """;
 
         return jdbcTemplate.update(query, userId, organizationId, position);

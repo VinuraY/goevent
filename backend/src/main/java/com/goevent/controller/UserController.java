@@ -1,5 +1,6 @@
 package com.goevent.controller;
 
+import com.goevent.dto.UserProfileDTO;
 import com.goevent.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
@@ -23,27 +24,21 @@ public class UserController {
         this.userService = userService;
     }
 
-    // Profile data for the signed-in user (one request: profile + options)
+    //get profile data
     @GetMapping("/data")
     public ResponseEntity<String> userData(HttpServletRequest httpRequest) {
-        return userService.getCurrentUserData(httpRequest);
+        return userService.getCurentUserData(httpRequest);
     }
 
-    // Update the editable profile fields of the signed-in user
+    //update user data
     @PutMapping("/data")
-    public ResponseEntity<String> updateUserData(
-            @RequestBody String body,
-            HttpServletRequest httpRequest
-    ) {
-        return userService.updateCurrentUserData(body, httpRequest);
+    public ResponseEntity<String> updateUserData(@RequestBody UserProfileDTO body, HttpServletRequest httpRequest) {
+        return userService.updateCurentUserData(body, httpRequest);
     }
 
-    // Upload a profile image (multipart form field: "file")
+    //upload profil image
     @PostMapping(value = "/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<String> uploadProfileImage(
-            @RequestParam("file") MultipartFile file,
-            HttpServletRequest httpRequest
-    ) {
+    public ResponseEntity<String> uploadProfileImage(@RequestParam("file") MultipartFile file, HttpServletRequest httpRequest) {
         return userService.uploadProfileImage(file, httpRequest);
     }
 }

@@ -442,7 +442,6 @@ export function CreateEventModal({ open, onClose, event = null }: CreateEventMod
 
     try {
       const payload: CreateEventPayload = {
-        ...(event ? {revision:event.revision} : {}),
         name,
         description: value('description') || undefined,
         categoryName,

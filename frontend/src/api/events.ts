@@ -1,4 +1,3 @@
-import { csrfHeaders } from './csrf';
 import { apiClient } from '@/lib/api-client';
 import { API_ROUTES } from './routes';
 
@@ -48,7 +47,6 @@ interface EventListResponse {
 
 /** Public detail of one approved event, as returned by `GET /events/{id}`. */
 export interface EventDetails {
-  revision?: number;
   id: number;
   name: string;
   description: string | null;
@@ -110,7 +108,6 @@ export interface CreateEventVenue {
 }
 
 export interface CreateEventPayload {
-  revision?: number;
   name: string;
   description?: string;
   categoryName: string;
@@ -180,7 +177,7 @@ export const eventsApi = {
 
   /** Replaces an event's listing details. The server checks ownership and keeps the review status. */
   update: async (id: number, payload: CreateEventPayload): Promise<CreateEventResponse> => {
-    const response = await apiClient.put<CreateEventResponse>(API_ROUTES.EVENTS.DETAIL(id), payload, {headers:await csrfHeaders()});
+    const response = await apiClient.put<CreateEventResponse>(API_ROUTES.EVENTS.DETAIL(id), payload);
 
     return response.data;
   },
@@ -226,11 +223,11 @@ export const eventsApi = {
   },
 
   save: async (id: number): Promise<void> => {
-    await apiClient.post(API_ROUTES.EVENTS.SAVE(id), undefined, {headers:await csrfHeaders()});
+    await apiClient.post(API_ROUTES.EVENTS.SAVE(id));
   },
 
   unsave: async (id: number): Promise<void> => {
-    await apiClient.delete(API_ROUTES.EVENTS.SAVE(id), {headers:await csrfHeaders()});
+    await apiClient.delete(API_ROUTES.EVENTS.SAVE(id));
   },
 
   /** Category, audience and tag options for the events-page filter. */
@@ -269,8 +266,7 @@ export const eventsApi = {
   create: async (payload: CreateEventPayload): Promise<CreateEventResponse> => {
     const response = await apiClient.post<CreateEventResponse>(
       API_ROUTES.EVENTS.CREATE,
-      payload,
-      {headers:await csrfHeaders()}
+      payload
     );
 
     return response.data;
@@ -295,7 +291,7 @@ export const eventsApi = {
     const response = await apiClient.post<UploadEventImageResponse>(
       API_ROUTES.EVENTS.IMAGE(id),
       formData,
-      { headers: { ...await csrfHeaders(), 'Content-Type': 'multipart/form-data' } }
+      { headers: { 'Content-Type': 'multipart/form-data' } }
     );
 
     return response.data;

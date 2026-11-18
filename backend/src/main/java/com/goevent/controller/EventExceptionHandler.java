@@ -37,7 +37,7 @@ public class EventExceptionHandler {
     ResponseEntity<Map<String, Object>> databaseFailure(DataAccessException error) {
         // Keep the response generic but leave the cause in the server log so a
         // failed write (missing migration, constraint) stays diagnosable.
-        logger.error("Event database operation failed ({})", error.getClass().getSimpleName());
+        logger.error("Event write failed: {}", error.getMostSpecificCause().getMessage(), error);
         return ResponseEntity.status(503)
                 .body(Map.of("status", false, "message",
                         "The event could not be saved. Please try again."));

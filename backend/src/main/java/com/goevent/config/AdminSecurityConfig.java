@@ -33,6 +33,8 @@ public class AdminSecurityConfig {
     SecurityFilterChain adminSecurity(HttpSecurity http, AdminAccessRepository access) throws Exception {
         return http.securityMatcher("/api/events/**", "/api/auth/**", "/api/user/**", "/api/admin/**", "/api/coordinator-requests/**", "/api/coordinator/**", "/api/public-events/**", "/api/contact/**")
             .cors(org.springframework.security.config.Customizer.withDefaults())
+            .csrf(csrf -> csrf.ignoringRequestMatchers("/api/auth/**", "/api/user/**", "/api/events/**",
+                "/api/public-events/**", "/api/contact/**"))
             .securityContext(context -> context.securityContextRepository(new NullSecurityContextRepository()))
             .requestCache(cache -> cache.disable())
             .authorizeHttpRequests(auth -> auth

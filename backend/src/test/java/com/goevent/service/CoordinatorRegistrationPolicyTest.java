@@ -12,7 +12,7 @@ import static org.mockito.Mockito.*;
 class CoordinatorRegistrationPolicyTest {
     @Test void unsupportedRolesCannotBeSelfRegisteredByEitherLoginMethod() {
         var users=mock(AuthenticationRepo.class);
-        var service=new AuthenticationService(users,new BCryptPasswordEncoder(4),mock(RegistrationService.class));
+        var service=new AuthenticationService(users,new BCryptPasswordEncoder(4));
         for(int role:new int[]{3,4,5}) {
             String google=service.handleGoogleAuthentication(Map.of("idToken","test-token","roleId",role),new MockHttpServletRequest());
             assertFalse(JsonParser.parseString(google).getAsJsonObject().get("status").getAsBoolean());

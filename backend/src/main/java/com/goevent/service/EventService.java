@@ -1,6 +1,5 @@
 package com.goevent.service;
 
-import com.goevent.config.FileStorageConfig;
 import com.goevent.dto.EventDTO;
 import com.goevent.dto.EventDetails;
 import com.goevent.dto.EventFilter;
@@ -18,7 +17,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.slf4j.Logger;
 import org.springframework.stereotype.Service;
-import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -48,12 +46,12 @@ public class EventService {
     private static final int MAX_LIST_SIZE = 50;
 
     private final EventRepo eventRepo;
-    private final ImageUploadService imageUploadService;
+    private final FileUploadService fileUploadService;
     private final MapLinkResolver mapLinks;
 
-    public EventService(EventRepo eventRepo, ImageUploadService imageUploadService, MapLinkResolver mapLinks) {
+    public EventService(EventRepo eventRepo, FileUploadService fileUploadService, MapLinkResolver mapLinks) {
         this.eventRepo = eventRepo;
-        this.imageUploadService = imageUploadService;
+        this.fileUploadService = fileUploadService;
         this.mapLinks = mapLinks;
     }
 
@@ -93,17 +91,14 @@ public class EventService {
     }
 
     /**
-     * Replaces an owned, unbooked listing with a revision-checked published version.
+     * Replaces an event's listing details. Only the owner may edit.
+     * The review status is kept, so an approved event stays visible while it is edited.
      */
     @Transactional
     public long update(long eventId, EventDTO input, HttpServletRequest httpRequest) {
 
         int actor = requireOrganizer(httpRequest);
         Map<String, Object> owner = requireOwnedEvent(eventId, actor);
-        if (input == null || input.getRevision() == null || input.getRevision() != number(owner,"revision"))
-            throw new EventException(HttpStatus.CONFLICT,"Event changed; refresh before saving");
-        if (number(owner,"event_level_id") != LISTING_ONLY || owner.get("disabled_at") != null || eventRepo.hasBookings(eventId))
-            throw new EventException(HttpStatus.CONFLICT,"This event cannot be edited through the listing form");
         Prepared event = prepare(input);
 
         eventRepo.updateVenue(number(owner, "venue_id"), event.venueName(), event.venueAddress(),
@@ -123,7 +118,7 @@ public class EventService {
 
         eventRepo.updateEvent(eventId, event.name(), event.description(), event.categoryId(),
                 event.audienceId(), startsAt(event), endsAt(event),
-                linkIds.isEmpty() ? null : linkIds.get(0), input.getRevision());
+                linkIds.isEmpty() ? null : linkIds.get(0));
 
         eventRepo.clearEventDates(eventId);
         writeSchedule(eventId, event);
@@ -148,6 +143,7 @@ public class EventService {
     }
 
     /** Full detail of one of the organizer's own events, whatever its review state. */
+    @Transactional(readOnly = true)
     public EventDetails ownerDetail(long eventId, HttpServletRequest httpRequest) {
 
         int actor = requireOrganizer(httpRequest);
@@ -162,7 +158,7 @@ public class EventService {
         return toDetails(eventId, row);
     }
 
-    /** Event row and strict creator ownership check. */
+    /** Event row and owner check: the owner only. */
     private Map<String, Object> requireOwnedEvent(long eventId, int actor) {
 
         Map<String, Object> owner = eventRepo.eventOwnerRow(eventId);
@@ -274,10 +270,10 @@ public class EventService {
             throw EventException.forbidden("You can only add images to your own events.");
         }
 
-        String imagePath = imageUploadService.uploadEventImage((int) eventId, image);
+        String imagePath = fileUploadService.uploadFile(FileUploadService.SCOPE_EVENT, (int) eventId, image);
         String bannerPath = banner == null || banner.isEmpty()
                 ? null
-                : imageUploadService.uploadEventBanner((int) eventId, banner);
+                : fileUploadService.uploadFile(FileUploadService.SCOPE_BANNER, (int) eventId, banner);
 
         try {
             Object existing = eventRow.get("img_id");
@@ -289,10 +285,10 @@ public class EventService {
             }
         } catch (RuntimeException error) {
             // The files are already written; remove them so a failed write leaves nothing behind.
-            imageUploadService.deleteByPath(FileStorageConfig.SCOPE_EVENT, imagePath);
+            fileUploadService.deleteFile(FileUploadService.SCOPE_EVENT, imagePath);
 
             if (bannerPath != null) {
-                imageUploadService.deleteByPath(FileStorageConfig.SCOPE_BANNER, bannerPath);
+                fileUploadService.deleteFile(FileUploadService.SCOPE_BANNER, bannerPath);
             }
 
             throw error;
@@ -415,7 +411,7 @@ public class EventService {
 
         Map<String, Object> account = eventRepo.account(userId);
 
-        if (account == null || number(account,"user_status_id") != UserStatus.ACTIVE.getId()) {
+        if (account == null) {
             throw EventException.unauthorized("Sign in to save events.");
         }
 
@@ -444,6 +440,7 @@ public class EventService {
     }
 
     /** Public detail: approved events only; anything else is reported as not found. */
+    @Transactional(readOnly = true)
     public EventDetails detail(long eventId) {
 
         Map<String, Object> row = eventRepo.approvedEventRow(eventId, Status.APPROVED.getId());
@@ -486,7 +483,7 @@ public class EventService {
                 text(row, "banner_path"),
                 dates,
                 links,
-                eventRepo.eventTagNames(eventId), row.get("revision") instanceof Number revision ? revision.intValue() : 0);
+                eventRepo.eventTagNames(eventId));
     }
 
     private static OwnedEventSummary owned(Map<String, Object> row) {
@@ -518,8 +515,7 @@ public class EventService {
                 text(row, "time_range"));
     }
 
-    // --- authorisation ---------------------------------------------------
-
+    //validate organizer
     private int requireOrganizer(HttpServletRequest httpRequest) {
 
         HttpSession session = httpRequest == null ? null : httpRequest.getSession(false);
@@ -769,7 +765,7 @@ public class EventService {
         }
     }
 
-        private static String text(Map<String, Object> row, String field) {
+    private static String text(Map<String, Object> row, String field) {
         Object value = row.get(field);
         return value == null ? null : value.toString();
     }

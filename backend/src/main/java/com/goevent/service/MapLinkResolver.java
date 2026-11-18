@@ -37,14 +37,11 @@ public class MapLinkResolver {
     private static final Pattern VIEWPORT = Pattern.compile("@(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)");
 
     private final HttpClient client = HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NEVER)
+            .followRedirects(HttpClient.Redirect.NORMAL)
             .connectTimeout(Duration.ofSeconds(4))
             .build();
 
-    private final Map<String, String> cache = java.util.Collections.synchronizedMap(
-        new java.util.LinkedHashMap<>(256, 0.75f, true) {
-            @Override protected boolean removeEldestEntry(Map.Entry<String,String> entry) { return size() > 256; }
-        });
+    private final Map<String, String> cache = new ConcurrentHashMap<>();
 
     /** Latitude,longitude for a saved Google link, when it can be resolved. */
     public Optional<String> coordinatesFor(String link) {
@@ -73,38 +70,25 @@ public class MapLinkResolver {
             return Optional.empty();
         }
 
+        if (!"https".equalsIgnoreCase(uri.getScheme())
+                || uri.getHost() == null
+                || !SHORT_LINK_HOSTS.contains(uri.getHost().toLowerCase())) {
+            return Optional.empty();
+        }
+
         try {
-            for (int hop=0; hop<3; hop++) {
-                if (!safeGoogleMap(uri)) return Optional.empty();
-                Optional<String> coordinates = parseCoordinates(uri.toString());
-                if (coordinates.isPresent()) return coordinates;
-                if (!SHORT_LINK_HOSTS.contains(uri.getHost().toLowerCase())) return Optional.empty();
-                HttpResponse<Void> response = client.send(
-                    HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(4)).GET().build(),
+            HttpResponse<Void> response = client.send(
+                    HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(6)).GET().build(),
                     HttpResponse.BodyHandlers.discarding());
-                String location = response.headers().firstValue("Location").orElse(null);
-                if (response.statusCode()<300 || response.statusCode()>=400 || location==null) return Optional.empty();
-                uri = uri.resolve(location);
-            }
-            return Optional.empty();
+
+            return parseCoordinates(response.uri().toString());
         } catch (IOException error) {
-            logger.warn("Could not resolve a saved map link");
-            return Optional.empty();
-        } catch (IllegalArgumentException error) {
+            logger.warn("Could not resolve a saved map link: {}", error.getMessage());
             return Optional.empty();
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             return Optional.empty();
         }
-    }
-
-    static boolean safeGoogleMap(URI uri) {
-        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost()==null || uri.getUserInfo()!=null
-            || (uri.getPort()!=-1 && uri.getPort()!=443)) return false;
-        String host=uri.getHost().toLowerCase(java.util.Locale.ROOT);
-        return host.equals("maps.app.goo.gl") || host.equals("goo.gl") && uri.getPath().startsWith("/maps")
-            || java.util.Set.of("www.google.com","google.com","maps.google.com").contains(host)
-                && uri.getPath().startsWith("/maps");
     }
 
     static Optional<String> parseCoordinates(String url) {

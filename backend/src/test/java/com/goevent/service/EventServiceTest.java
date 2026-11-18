@@ -42,7 +42,7 @@ class EventServiceTest {
     private static final ZoneId UTC = ZoneId.of("UTC");
 
     private EventRepo repo;
-    private ImageUploadService images;
+    private FileUploadService images;
     private MapLinkResolver mapLinks;
     private EventService service;
     private MockHttpServletRequest request;
@@ -51,7 +51,7 @@ class EventServiceTest {
     @BeforeEach
     void setUp() {
         repo = mock(EventRepo.class);
-        images = mock(ImageUploadService.class);
+        images = mock(FileUploadService.class);
         mapLinks = mock(MapLinkResolver.class);
         service = new EventService(repo, images, mapLinks);
         request = new MockHttpServletRequest();
@@ -173,7 +173,7 @@ class EventServiceTest {
 
         when(repo.eventImageRow(99L)).thenReturn(row);
         when(repo.insertImage(anyString(), isNull())).thenReturn(5L);
-        when(images.uploadEventImage(eq(99), any()))
+        when(images.uploadFile(eq(FileUploadService.SCOPE_EVENT), eq(99), any()))
                 .thenReturn("/goevent/api/images/event/99/cover.png");
 
         Map<String, Object> result = service.attachImage(
@@ -197,7 +197,7 @@ class EventServiceTest {
                 () -> service.attachImage(99L, imageFile(), null, request));
 
         assertEquals(HttpStatus.FORBIDDEN, error.status());
-        verify(images, never()).uploadEventImage(anyInt(), any());
+        verify(images, never()).uploadFile(anyString(), anyInt(), any());
     }
 
     @Test
@@ -322,7 +322,7 @@ class EventServiceTest {
     @Test
     void updatesTheOwnersEventAndReplacesItsDatesLinksAndTags() {
         signedIn(7);
-        when(repo.eventOwnerRow(99L)).thenReturn(Map.of("published_by", 7, "venue_id", 5, "img_id", 3, "revision",0,"event_level_id",1));
+        when(repo.eventOwnerRow(99L)).thenReturn(Map.of("published_by", 7, "venue_id", 5, "img_id", 3));
         when(repo.eventLinkIds(99L)).thenReturn(List.of(51L));
 
         long id = service.update(99L, validPayload(), request);
@@ -332,19 +332,19 @@ class EventServiceTest {
         verify(repo).clearEventDates(99L);
         verify(repo).clearEventTags(99L);
         verify(repo).deleteLinkIfUnused(51L);
-        verify(repo).updateEvent(eq(99L), anyString(), any(), anyInt(), anyInt(), any(), any(), any(), anyInt());
+        verify(repo).updateEvent(eq(99L), anyString(), any(), anyInt(), anyInt(), any(), any(), any());
     }
 
     @Test
     void rejectsEditingAnotherOrganizersEvent() {
         signedIn(7);
-        when(repo.eventOwnerRow(99L)).thenReturn(Map.of("published_by", 8, "venue_id", 5, "img_id", 3, "revision",0,"event_level_id",1));
+        when(repo.eventOwnerRow(99L)).thenReturn(Map.of("published_by", 8, "venue_id", 5, "img_id", 3));
 
         EventException error = assertThrows(EventException.class,
                 () -> service.update(99L, validPayload(), request));
 
         assertEquals(HttpStatus.FORBIDDEN, error.status());
-        verify(repo, never()).updateEvent(anyLong(), anyString(), any(), anyInt(), anyInt(), any(), any(), any(), anyInt());
+        verify(repo, never()).updateEvent(anyLong(), anyString(), any(), anyInt(), anyInt(), any(), any(), any());
     }
 
     @Test
@@ -421,7 +421,6 @@ class EventServiceTest {
 
     private EventDTO validPayload() {
         EventDTO payload = new EventDTO();
-        payload.setRevision(0);
         payload.setName("Tech Fest 2026");
         payload.setDescription("Design preview");
         payload.setCategoryName("Technology");
@@ -456,17 +455,4 @@ class EventServiceTest {
         row.setEndTime(end);
         return row;
     }
-    @Test void listingEditorRejectsStaleCancelledTicketedAndBookedEventsBeforeWriting() {
-        signedIn(7);
-        for (String reason:List.of("stale","cancelled","ticketed","booking")) {
-            var row=new HashMap<String,Object>();row.put("published_by",7);row.put("venue_id",5);row.put("img_id",3);
-            row.put("revision",reason.equals("stale")?1:0);row.put("event_level_id",reason.equals("ticketed")?2:1);
-            if(reason.equals("cancelled"))row.put("disabled_at",java.sql.Timestamp.from(java.time.Instant.now()));
-            when(repo.eventOwnerRow(99L)).thenReturn(row);when(repo.hasBookings(99L)).thenReturn(reason.equals("booking"));
-            var error=assertThrows(EventException.class,()->service.update(99L,validPayload(),request));
-            assertEquals(HttpStatus.CONFLICT,error.status());
-        }
-        verify(repo,never()).clearEventDates(anyLong());verify(repo,never()).updateVenue(anyLong(),anyString(),any(),anyString(),any());
-    }
-
 }

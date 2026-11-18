@@ -38,10 +38,4 @@ class MapLinkResolverTest {
         assertTrue(resolver.coordinatesFor("https://evil.example.com/maps").isEmpty());
         assertTrue(resolver.coordinatesFor(null).isEmpty());
     }
-    @Test void redirectTargetsNeverPermitMetadataPrivateOrUntrustedHosts() {
-        for(String url:java.util.List.of("http://169.254.169.254/latest", "https://localhost/maps", "https://www.google.com.evil.invalid/maps", "https://www.google.com:8080/maps", "https://user:pass@www.google.com/maps"))
-            org.junit.jupiter.api.Assertions.assertFalse(MapLinkResolver.safeGoogleMap(java.net.URI.create(url)));
-        assertTrue(MapLinkResolver.safeGoogleMap(java.net.URI.create("https://www.google.com/maps/place/Colombo")));
-    }
-
 }

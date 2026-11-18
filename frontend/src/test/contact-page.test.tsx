@@ -18,7 +18,7 @@ describe('ContactPage', () => {
     render(<ContactPage />);
 
     fireEvent.change(screen.getByLabelText(/Full name/i), { target: { value: 'Ada Lovelace' } });
-    fireEvent.change(screen.getByLabelText('Email', { exact: true }), { target: { value: 'ada@example.com' } });
+    fireEvent.change(screen.getByLabelText(/Email/i), { target: { value: 'ada@example.com' } });
     fireEvent.change(screen.getByLabelText(/Message/i), { target: { value: 'Can I host a workshop?' } });
     fireEvent.click(screen.getByRole('button', { name: /Send message/i }));
 

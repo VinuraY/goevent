@@ -35,7 +35,7 @@ class OrganizerFlowIntegrationTest {
         @Bean RegistrationService registration(AuthenticationRepo users) { return new RegistrationService(users); }
         @Bean EventRepo events(JdbcTemplate jdbc) { return new EventRepo(jdbc); }
         @Bean EventService service(EventRepo events) {
-            return new EventService(events,new ImageUploadService(new StorageSettings(Path.of(System.getProperty("java.io.tmpdir"),"unused-organizer-fixture"),"/goevent/api/images")),mock(MapLinkResolver.class));
+            return new EventService(events,mock(FileUploadService.class),mock(MapLinkResolver.class));
         }
     }
     AnnotationConfigApplicationContext context;
@@ -54,8 +54,8 @@ class OrganizerFlowIntegrationTest {
         return new RegistrationService.Input("Test","Organizer",email,new BCryptPasswordEncoder(4).encode("fixture-pass"),null,null,role,org,"Chair");
     }
     MockHttpServletRequest session(int id) { var r=new MockHttpServletRequest();r.getSession().setAttribute("userId",id);return r; }
-    EventDTO payload(int revision) {
-        var input=new EventDTO();input.setName("Direct publication");input.setRevision(revision);input.setEventLevelId(1);
+    EventDTO payload() {
+        var input=new EventDTO();input.setName("Direct publication");input.setEventLevelId(1);
         input.setCategoryId(jdbc.queryForObject("SELECT id FROM category ORDER BY id LIMIT 1",Integer.class));
         input.setAudienceId(jdbc.queryForObject("SELECT id FROM audience ORDER BY id LIMIT 1",Integer.class));
         var venue=new EventDTO.Venue();venue.setName("Venue");venue.setCity("Colombo");input.setVenue(venue);
@@ -63,25 +63,22 @@ class OrganizerFlowIntegrationTest {
         input.setLinks(List.of());input.setTags(List.of());return input;
     }
     @Test void manualSignupPublishesImmediatelyWithOwnershipAndStaleEditChecks() {
-        var auth=new AuthenticationService(context.getBean(AuthenticationRepo.class),new BCryptPasswordEncoder(4),registrations);
+        var auth=new AuthenticationService(context.getBean(AuthenticationRepo.class),new BCryptPasswordEncoder(4));
         var body=new HashMap<>(Map.of("fname","Test","lname","Organizer","email","organizer@example.invalid","password","fixture-pass","confirmPassword","fixture-pass","roleId","2","orgId",Integer.toString(organization()),"position","Chair"));
         var registered=com.google.gson.JsonParser.parseString(auth.handleManualRegistration(body,new MockHttpServletRequest())).getAsJsonObject();
         assertTrue(registered.get("status").getAsBoolean());assertEquals("REGISTERED",registered.get("action").getAsString());
         int id=registered.get("userId").getAsInt();
         assertEquals(1,jdbc.queryForObject("SELECT user_status_id FROM `user` WHERE id=?",Integer.class,id));
         assertEquals("APPROVED",jdbc.queryForObject("SELECT access_state FROM user_has_organize WHERE user_id=?",String.class,id));
-        long event=events.create(payload(0),session(id));
+        long event=events.create(payload(),session(id));
         assertEquals(2,jdbc.queryForObject("SELECT event_status_id FROM `event` WHERE id=?",Integer.class,event));
         assertNull(jdbc.queryForObject("SELECT aproved_by FROM `event` WHERE id=?",Integer.class,event));
         assertEquals(event,events.detail(event).id());
         int other=registrations.register(input("other@example.invalid",Role.ORGANIZER,organization())).getId();
-        assertThrows(EventException.class,()->events.update(event,payload(0),session(other)));
-        assertEquals(event,events.update(event,payload(0),session(id)));
-        assertEquals(1,events.ownerDetail(event,session(id)).revision());
-        assertThrows(EventException.class,()->events.update(event,payload(0),session(id)));
+        assertThrows(EventException.class,()->events.update(event,payload(),session(other)));
+        assertEquals(event,events.update(event,payload(),session(id)));
         jdbc.update("UPDATE `user` SET user_status_id=2 WHERE id=?",id);
-        assertThrows(EventException.class,()->events.create(payload(0),session(id)));
-        assertThrows(EventException.class,()->events.save(event,session(id)));
+        assertThrows(EventException.class,()->events.create(payload(),session(id)));
     }
     @Test void badOrganizationAndDuplicateRegistrationsLeaveNoPartialAccount() {
         assertThrows(IllegalArgumentException.class,()->registrations.register(input("bad@example.invalid",Role.ORGANIZER,Integer.MAX_VALUE)));
@@ -90,7 +87,7 @@ class OrganizerFlowIntegrationTest {
         assertThrows(RuntimeException.class,()->registrations.register(input("same@example.invalid",Role.ORGANIZER,organization())));
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM `user` WHERE email='same@example.invalid'",Integer.class));
         int user=registrations.register(input("attendee@example.invalid",Role.USER,null)).getId();
-        assertThrows(EventException.class,()->events.create(payload(0),session(user)));
+        assertThrows(EventException.class,()->events.create(payload(),session(user)));
     }
     @Test void organizationWriteFailureRollsBackTheNewAccount() {
         var users=context.getBean(AuthenticationRepo.class);
@@ -115,7 +112,7 @@ class OrganizerFlowIntegrationTest {
         Flyway.configure().dataSource(mysql.getJdbcUrl(),mysql.getUsername(),mysql.getPassword()).load().migrate();
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM event_has_links WHERE event_id=? AND link_id=?",Integer.class,event,link));
         assertEquals(100,jdbc.queryForObject("SELECT total_amount FROM booking WHERE booking_reference='legacy-booking'",Double.class).intValue());
-        assertThrows(EventException.class,()->events.update(event,payload(0),session(owner)));
+        assertEquals(event,events.update(event,payload(),session(owner)));
     }
 
 }

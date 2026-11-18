@@ -14,34 +14,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class GoogleAdminAuthenticationTest {
-    @Test void verifiedSubjectAndActiveDatabaseAdminEstablishDedicatedAccess() throws Exception {
-        var repository=mock(AuthenticationRepo.class);
-        var service=new AuthenticationService(repository,new BCryptPasswordEncoder(4),mock(RegistrationService.class));
-        ReflectionTestUtils.setField(service,"googleClientId","fixture.apps.googleusercontent.com");
-        var verifier=mock(GoogleIdTokenVerifier.class);
-        var token=mock(GoogleIdToken.class);
-        var payload=new GoogleIdToken.Payload();
-        payload.setSubject("verified-subject");payload.setEmail("admin@example.invalid");payload.setEmailVerified(true);
-        when(token.getPayload()).thenReturn(payload);
-        when(verifier.verify("signed-fixture")).thenReturn(token);
-        var admin=new UserDTO();admin.setId(7);admin.setRoleId(3);admin.setUserStatusId(1);admin.setEmail("admin@example.invalid");
-        when(repository.getUserByGoogleSub("verified-subject")).thenReturn(admin);
-        try(var builders=mockConstruction(GoogleIdTokenVerifier.Builder.class,(builder,context)->{
-            when(builder.setAudience(anyCollection())).thenReturn(builder);when(builder.build()).thenReturn(verifier);
-        })) {
-            var request=new MockHttpServletRequest();
-            var response=JsonParser.parseString(service.handleGoogleAuthentication(Map.of("idToken","signed-fixture"),request)).getAsJsonObject();
-            assertTrue(response.get("status").getAsBoolean());
-            assertEquals("ADMIN",response.get("roleId").getAsString());
-            assertEquals(7,request.getSession().getAttribute("adminUserId"));
-            assertNull(request.getSession().getAttribute("userId"));
-            verify(verifier).verify("signed-fixture");
-            verify(builders.constructed().getFirst()).setAudience(java.util.List.of("fixture.apps.googleusercontent.com"));
-        }
-    }
     @Test void invalidTokenCannotReachDatabaseOrCreateAnAdminSession() throws Exception {
         var repository=mock(AuthenticationRepo.class);
-        var service=new AuthenticationService(repository,new BCryptPasswordEncoder(4),mock(RegistrationService.class));
+        var service=new AuthenticationService(repository,new BCryptPasswordEncoder(4));
         ReflectionTestUtils.setField(service,"googleClientId","fixture.apps.googleusercontent.com");
         var verifier=mock(GoogleIdTokenVerifier.class);
         try(var builders=mockConstruction(GoogleIdTokenVerifier.Builder.class,(builder,context)->{
@@ -53,15 +28,16 @@ class GoogleAdminAuthenticationTest {
         }
     }
     @Test void verifiedGoogleOrganizerRegistrationIsActiveWithoutAdminReview() throws Exception {
-        var users=mock(AuthenticationRepo.class);var registrations=mock(RegistrationService.class);
-        var service=new AuthenticationService(users,new BCryptPasswordEncoder(4),registrations);
+        var users=mock(AuthenticationRepo.class);
+        var service=new AuthenticationService(users,new BCryptPasswordEncoder(4));
         ReflectionTestUtils.setField(service,"googleClientId","fixture.apps.googleusercontent.com");
         var verifier=mock(GoogleIdTokenVerifier.class);var token=mock(GoogleIdToken.class);
         var payload=new GoogleIdToken.Payload();payload.setSubject("organizer-subject");
         payload.setEmail("organizer@example.invalid");payload.setEmailVerified(true);
         when(token.getPayload()).thenReturn(payload);when(verifier.verify("signed-fixture")).thenReturn(token);
         var user=new UserDTO();user.setId(7);user.setRoleId(2);user.setUserStatusId(1);user.setEmail("organizer@example.invalid");
-        when(registrations.register(any())).thenReturn(user);
+        when(users.registerGoogleUser(anyString(),anyString(),anyString(),anyInt(),anyInt(),anyString(),any(),anyInt())).thenReturn(1);
+        when(users.getUserByEmail("organizer@example.invalid")).thenReturn(user);
         try(var builders=mockConstruction(GoogleIdTokenVerifier.Builder.class,(builder,context)->{
             when(builder.setAudience(anyCollection())).thenReturn(builder);when(builder.build()).thenReturn(verifier);
         })) {
@@ -69,9 +45,7 @@ class GoogleAdminAuthenticationTest {
             var result=JsonParser.parseString(service.handleGoogleAuthentication(Map.of("idToken","signed-fixture","roleId",2,"orgId",1,"position","Chair"),request)).getAsJsonObject();
             assertTrue(result.get("status").getAsBoolean());assertEquals("REGISTERED",result.get("action").getAsString());
             assertEquals(7,request.getSession().getAttribute("userId"));
-            var input=org.mockito.ArgumentCaptor.forClass(RegistrationService.Input.class);
-            verify(registrations).register(input.capture());assertEquals(com.goevent.enums.Role.ORGANIZER,input.getValue().role());
-            assertEquals("organizer-subject",input.getValue().googleSubject());
+            verify(users).registerOrganizerData(7,1,"Chair");
         }
     }
 

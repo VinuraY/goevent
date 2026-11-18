@@ -78,10 +78,6 @@ export function GoogleAuthButton({
         return;
       }
 
-      if (data.roleId === 'ADMIN') {
-        throw new Error('This account is not available in the organizer application.');
-      }
-
       // Decode Google ID Token (client-side only for prefilling name, email, avatar)
       let googleUser: GoogleDecodedUser | null = null;
       try {
@@ -103,7 +99,7 @@ export function GoogleAuthButton({
       if (data.action === 'REGISTRATION_REQUIRED') {
         toast.info(data.message || 'Google account verified. Please complete your registration.');
       } else if (data.action === 'REGISTRATION_PENDING') {
-        toast.info(data.message || 'Registration submitted and waiting for admin approval.');
+        toast.info(data.message || 'Registration submitted.');
       } else if (data.action === 'REGISTERED') {
         useSessionStore.getState().setAuthenticated({
           userId: data.userId,

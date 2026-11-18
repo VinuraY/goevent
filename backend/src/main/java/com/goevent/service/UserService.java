@@ -1,19 +1,19 @@
+
 package com.goevent.service;
 
 import com.goevent.common.ApiResponse;
-import com.goevent.config.FileStorageConfig;
 import com.goevent.dto.UserDTO;
+import com.goevent.dto.UserProfileDTO;
 import com.goevent.enums.AuthType;
 import com.goevent.enums.Role;
 import com.goevent.repository.ContentRepo;
 import com.goevent.repository.UserRepo;
 import com.goevent.util.AppUtil;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
+
+import org.slf4j.Logger;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,55 +24,37 @@ import java.util.regex.Pattern;
 
 @Service
 public class UserService {
-
+    private static final Logger logger = AppUtil.getLogger(UserService.class);
     private static final Pattern EMAIL = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
     private static final Pattern MOBILE = Pattern.compile("^\\+?[0-9 ()-]{6,15}$");
 
     private final UserRepo userRepo;
     private final ContentRepo contentRepo;
-    private final ImageUploadService imageUploadService;
+    private final FileUploadService fileUploadService;
 
-    public UserService(
-            UserRepo userRepo,
-            ContentRepo contentRepo,
-            ImageUploadService imageUploadService
-    ) {
+    public UserService(UserRepo userRepo, ContentRepo contentRepo, FileUploadService fileUploadService) {
         this.userRepo = userRepo;
         this.contentRepo = contentRepo;
-        this.imageUploadService = imageUploadService;
+        this.fileUploadService = fileUploadService;
     }
 
-    /**
-     * Returns everything the profile page and the edit dialog need in a single
-     * response: base profile, auth type, role-specific details and the
-     * university/organization dropdown options.
-     */
-    public ResponseEntity<String> getCurrentUserData(HttpServletRequest httpRequest) {
-
-        Integer userId = currentUserId(httpRequest);
+    //get curent user profile
+    public ResponseEntity<String> getCurentUserData(HttpServletRequest request) {
+        Integer userId = currentUserId(request); //validate session and get userid
 
         if (userId == null) {
             return ApiResponse.unauthorized("Not authenticated");
         }
 
-        JsonObject profile = buildProfileJson(userId);
+        UserProfileDTO profile = buildProfile(userId);
 
-        if (profile == null) {
-            // Session points at a user that no longer exists.
-            return ApiResponse.unauthorized("Not authenticated");
-        }
-
-        return ApiResponse.ok( profile);
+        return profile != null ? ApiResponse.ok(toJson(profile)) : ApiResponse.unauthorized("Not authenticated");
     }
 
-    /**
-     * Updates the editable parts of the profile. Role, auth type and email are
-     * never taken from the client; they are read from the database.
-     */
+    //update current user profile
     @Transactional
-    public ResponseEntity<String> updateCurrentUserData(String body, HttpServletRequest httpRequest) {
-
-        Integer userId = currentUserId(httpRequest);
+    public ResponseEntity<String> updateCurentUserData(UserProfileDTO input, HttpServletRequest request) {
+        Integer userId = currentUserId(request);
 
         if (userId == null) {
             return ApiResponse.unauthorized("Not authenticated");
@@ -84,152 +66,181 @@ public class UserService {
             return ApiResponse.unauthorized("Not authenticated");
         }
 
-        JsonObject payload;
+        // A null field keeps the current value (see UserProfileDTO).
+        String firstName = valueOrCurrent(input.firstName(), user.getFname());
+        String lastName = valueOrCurrent(input.lastName(), user.getLname());
+        String mobile = valueOrCurrent(input.mobile(), user.getMobile());
 
-        try {
-            JsonElement parsed = JsonParser.parseString(body);
+        String previousImage = user.getProfileImgUrl();
+        String profileImage = valueOrCurrent(input.profileImgUrl(), previousImage);
 
-            if (!parsed.isJsonObject()) {
-                return ApiResponse.badRequest("Invalid request body");
-            }
-
-            payload = parsed.getAsJsonObject();
-        } catch (RuntimeException e) {
-            return ApiResponse.badRequest("Invalid request body");
-        }
-
-        String firstName = stringField(payload, "firstName", user.getFname());
-        String lastName = stringField(payload, "lastName", user.getLname());
-        String mobile = stringField(payload, "mobile", user.getMobile());
-        String previousProfileImgUrl = user.getProfileImgUrl();
-        String profileImgUrl = stringField(payload, "profileImgUrl", previousProfileImgUrl);
-
-        // A blank value removes the picture; an absent value keeps the current one.
-        if (profileImgUrl != null && profileImgUrl.isBlank()) {
-            profileImgUrl = null;
+        // An empty picture URL removes the picture.
+        if (profileImage != null && profileImage.isBlank()) {
+            profileImage = null;
         }
 
         if (firstName == null || firstName.isBlank()) {
             return ApiResponse.badRequest("First name is required");
         }
+
         if (firstName.length() > 45) {
-            return ApiResponse.badRequest("First name must be 45 characters or fewer");
+            return ApiResponse.badRequest(
+                    "First name must be 45 characters or fewer"
+            );
         }
+
         if (lastName == null || lastName.isBlank()) {
             return ApiResponse.badRequest("Last name is required");
         }
+
         if (lastName.length() > 45) {
-            return ApiResponse.badRequest("Last name must be 45 characters or fewer");
+            return ApiResponse.badRequest(
+                    "Last name must be 45 characters or fewer"
+            );
         }
-        if (mobile != null && !mobile.isBlank() && !MOBILE.matcher(mobile).matches()) {
+
+        if (mobile != null && !mobile.isBlank()
+                && !MOBILE.matcher(mobile).matches()) {
             return ApiResponse.badRequest("Enter a valid mobile number");
         }
-        if (profileImgUrl != null && profileImgUrl.length() > 200) {
+
+        if (profileImage != null && profileImage.length() > 200) {
             return ApiResponse.badRequest("Profile image URL is too long");
         }
-        if (profileImgUrl != null && !isAllowedImageUrl(profileImgUrl)) {
+
+        if (profileImage != null && !isAllowedImageUrl(profileImage)) {
             return ApiResponse.badRequest("Invalid profile image");
         }
 
+        //role-specific fields
         Role role = roleOf(user.getRoleId());
 
         String indexNo = null;
         String uniEmail = null;
         Integer universityId = null;
+
         Integer organizationId = null;
         String position = null;
 
-        if (role == Role.STUDENT && isObjectField(payload, "student")) {
-            JsonObject student = payload.getAsJsonObject("student");
+        //student details
+        if (role == Role.STUDENT && input.student() != null) {
 
-            indexNo = stringField(student, "indexNo", null);
-            uniEmail = stringField(student, "uniEmail", null);
-            universityId = intField(student, "universityId");
+            indexNo = trimmed(input.student().indexNo());
+            uniEmail = trimmed(input.student().uniEmail());
+            universityId = input.student().universityId();
 
             if (indexNo == null || indexNo.isBlank()) {
                 return ApiResponse.badRequest("Index number is required");
             }
+
             if (indexNo.length() > 45) {
-                return ApiResponse.badRequest("Index number must be 45 characters or fewer");
+                return ApiResponse.badRequest(
+                        "Index number must be 45 characters or fewer"
+                );
             }
+
             if (uniEmail == null || !EMAIL.matcher(uniEmail).matches()) {
-                return ApiResponse.badRequest("Enter a valid university email");
+                return ApiResponse.badRequest(
+                        "Enter a valid university email"
+                );
             }
+
             if (uniEmail.length() > 100) {
-                return ApiResponse.badRequest("University email must be 100 characters or fewer");
+                return ApiResponse.badRequest(
+                        "University email must be 100 characters or fewer"
+                );
             }
-            if (universityId == null || !userRepo.universityExists(universityId)) {
+
+            if (universityId == null
+                    || !userRepo.universityExists(universityId)) {
                 return ApiResponse.badRequest("Select a valid university");
             }
         }
 
-        if (role == Role.ORGANIZER && isObjectField(payload, "organization")) {
-            JsonObject organization = payload.getAsJsonObject("organization");
+        //organizer details
+        if (role == Role.ORGANIZER && input.organization() != null) {
 
-            organizationId = intField(organization, "organizationId");
-            position = stringField(organization, "position", null);
+            organizationId = input.organization().organizationId();
+            position = trimmed(input.organization().position());
 
-            if (organizationId == null || !userRepo.organizationExists(organizationId)) {
+            if (organizationId == null
+                    || !userRepo.organizationExists(organizationId)) {
                 return ApiResponse.badRequest("Select a valid organization");
             }
+
+            Map<String, Object> approved =
+                    userRepo.getOrganizerDetail(userId);
+
+            if (approved == null
+                    || ((Number) approved.get("organization_id"))
+                    .intValue() != organizationId) {
+                return ApiResponse.badRequest(
+                        "Organization changes are not available from your profile"
+                );
+            }
+
             if (position == null || position.isBlank()) {
                 return ApiResponse.badRequest("Position is required");
             }
+
             if (position.length() > 45) {
-                return ApiResponse.badRequest("Position must be 45 characters or fewer");
+                return ApiResponse.badRequest(
+                        "Position must be 45 characters or fewer"
+                );
             }
         }
 
-        userRepo.updateProfile(userId, firstName, lastName, mobile, profileImgUrl);
+        //save profile
+        userRepo.updateProfile(
+                userId, firstName, lastName, mobile, profileImage
+        );
 
         if (indexNo != null) {
-            userRepo.upsertStudentDetail(userId, indexNo, uniEmail, universityId);
+            userRepo.upsertStudentDetail(
+                    userId, indexNo, uniEmail, universityId
+            );
         }
 
         if (organizationId != null) {
-            userRepo.upsertOrganizerDetail(userId, organizationId, position);
+            userRepo.upsertOrganizerDetail(
+                    userId, organizationId, position
+            );
         }
 
-        // Only after the database points at the new file do we remove the old
-        // one, so a failed save never leaves the profile without an image.
-        if (previousProfileImgUrl != null && !previousProfileImgUrl.equals(profileImgUrl)) {
-            imageUploadService.deleteByPath(FileStorageConfig.SCOPE_PROFILE, previousProfileImgUrl);
+        // Delete old profile image
+        if (previousImage != null && !previousImage.equals(profileImage)) {
+            fileUploadService.deleteFile(
+                    FileUploadService.SCOPE_PROFILE, previousImage
+            );
         }
 
-        refreshSessionProfile(httpRequest, userId);
+        refreshSessionProfile(request, userId);
 
-        JsonObject profile = buildProfileJson(userId);
+        UserProfileDTO profile = buildProfile(userId);
 
-        if (profile == null) {
-            return ApiResponse.unauthorized("Not authenticated");
-        }
-
-        return ApiResponse.ok( profile);
+        return profile != null
+                ? ApiResponse.ok(toJson(profile))
+                : ApiResponse.unauthorized("Not authenticated");
     }
 
-    /**
-     * Stores a profile picture through the shared image service and returns the
-     * public URL that the browser (and MySQL) should use.
-     */
-    public ResponseEntity<String> uploadProfileImage(MultipartFile file, HttpServletRequest httpRequest) {
+    //upload profile image
+    public ResponseEntity<String> uploadProfileImage(MultipartFile file, HttpServletRequest request) {
 
-        Integer userId = currentUserId(httpRequest);
+        Integer userId = currentUserId(request);
 
         if (userId == null) {
             return ApiResponse.unauthorized("Not authenticated");
         }
 
-        String profileImgUrl = imageUploadService.uploadProfilePicture(userId, file);
+        String imageUrl = fileUploadService.uploadFile(
+                FileUploadService.SCOPE_PROFILE, userId, file
+        );
 
-        JsonObject response = new JsonObject();
-
-        response.addProperty("status", true);
-        response.addProperty("profileImgUrl", profileImgUrl);
-
-        return ApiResponse.ok( response);
+        return ApiResponse.ok(toJson(UserProfileDTO.imageUploaded(imageUrl)));
     }
 
-    private JsonObject buildProfileJson(int userId) {
+    // Build complete profile response
+    private UserProfileDTO buildProfile(int userId) {
 
         UserDTO user = userRepo.getUserById(userId);
 
@@ -237,79 +248,79 @@ public class UserService {
             return null;
         }
 
-        JsonObject response = new JsonObject();
+        Map<String, Object> studentRow = userRepo.getStudentDetail(userId);
 
-        response.addProperty("status", true);
-        response.addProperty("firstName", user.getFname());
-        response.addProperty("lastName", user.getLname());
-        response.addProperty("name", buildDisplayName(user));
-        response.addProperty("email", user.getEmail());
-        response.addProperty("mobile", user.getMobile());
-        response.addProperty("role", roleName(user.getRoleId()));
-        response.addProperty("authType", authTypeName(user.getAuthTypeId()));
-        response.addProperty("profileImgUrl", user.getProfileImgUrl());
-        response.addProperty(
-                "registeredDate",
+        UserProfileDTO.Student student = studentRow == null ? null
+                : new UserProfileDTO.Student(
+                        stringValue(studentRow.get("index_no")),
+                        stringValue(studentRow.get("uni_email")),
+                        intValue(studentRow.get("university_id")),
+                        stringValue(studentRow.get("university_name")));
+
+        Map<String, Object> organizerRow = userRepo.getOrganizerDetail(userId);
+
+        UserProfileDTO.Organization organization = organizerRow == null ? null
+                : new UserProfileDTO.Organization(
+                        intValue(organizerRow.get("organization_id")),
+                        stringValue(organizerRow.get("organization_name")),
+                        stringValue(organizerRow.get("position")));
+
+        UserProfileDTO.Options options = new UserProfileDTO.Options(
+                contentRepo.getUniversities(),
+                contentRepo.getOrganizations());
+
+        return new UserProfileDTO(
+                true,
+                user.getFname(),
+                user.getLname(),
+                buildDisplayName(user),
+                user.getEmail(),
+                user.getMobile(),
+                roleName(user.getRoleId()),
+                authTypeName(user.getAuthTypeId()),
+                user.getProfileImgUrl(),
                 user.getRegisteredDate() != null
                         ? user.getRegisteredDate().toLocalDateTime().toLocalDate().toString()
-                        : null
-        );
-
-        Map<String, Object> student = userRepo.getStudentDetail(userId);
-
-        if (student != null) {
-            JsonObject studentJson = new JsonObject();
-
-            studentJson.addProperty("indexNo", stringValue(student.get("index_no")));
-            studentJson.addProperty("uniEmail", stringValue(student.get("uni_email")));
-            studentJson.addProperty("universityId", intValue(student.get("university_id")));
-            studentJson.addProperty("universityName", stringValue(student.get("university_name")));
-
-            response.add("student", studentJson);
-        } else {
-            response.add("student", JsonNull.INSTANCE);
-        }
-
-        Map<String, Object> organizer = userRepo.getOrganizerDetail(userId);
-
-        if (organizer != null) {
-            JsonObject organizationJson = new JsonObject();
-
-            organizationJson.addProperty("organizationId", intValue(organizer.get("organization_id")));
-            organizationJson.addProperty("organizationName", stringValue(organizer.get("organization_name")));
-            organizationJson.addProperty("position", stringValue(organizer.get("position")));
-
-            response.add("organization", organizationJson);
-        } else {
-            response.add("organization", JsonNull.INSTANCE);
-        }
-
-        JsonObject options = new JsonObject();
-
-        options.add("universities", AppUtil.gson.toJsonTree(contentRepo.getUniversities()));
-        options.add("organizations", AppUtil.gson.toJsonTree(contentRepo.getOrganizations()));
-
-        response.add("options", options);
-
-        return response;
+                        : null,
+                student,
+                organization,
+                options);
     }
 
-    private Integer currentUserId(HttpServletRequest httpRequest) {
-
-        HttpSession session = httpRequest.getSession(false);
-        Object sessionUserId = session != null ? session.getAttribute("userId") : null;
-
-        if (!(sessionUserId instanceof Integer id)) return null;
-        UserDTO current=userRepo.getUserById(id);
-        if(current==null||current.getUserStatusId()!=1) {
-            session.invalidate(); return null;
-        }
-        return id;
+    private static JsonObject toJson(UserProfileDTO profile) {
+        return AppUtil.gson.toJsonTree(profile).getAsJsonObject();
     }
 
-    private void refreshSessionProfile(HttpServletRequest httpRequest, int userId) {
+    // get authenticated user ID
+    private Integer currentUserId(HttpServletRequest request) {
 
-        HttpSession session = httpRequest.getSession(false);
+        HttpSession session = request.getSession(false);
+
+        if (session == null) {
+            return null;
+        }
+
+        Object value = session.getAttribute("userId");
+
+        if (!(value instanceof Integer userId)) {
+            return null;
+        }
+
+        UserDTO user = userRepo.getUserById(userId);
+
+        if (user == null || user.getUserStatusId() != 1) {
+            session.invalidate();
+            return null;
+        }
+
+        return userId;
+    }
+
+    // Refresh session data
+    private void refreshSessionProfile(
+            HttpServletRequest request, int userId) {
+
+        HttpSession session = request.getSession(false);
 
         if (session == null) {
             return;
@@ -325,24 +336,19 @@ public class UserService {
         session.setAttribute("email", user.getEmail());
     }
 
+    // Build display name
     private String buildDisplayName(UserDTO user) {
 
-        StringBuilder displayName = new StringBuilder();
+        String name = (
+                (user.getFname() == null ? "" : user.getFname().trim())
+                        + " "
+                        + (user.getLname() == null ? "" : user.getLname().trim())
+        ).trim();
 
-        if (user.getFname() != null && !user.getFname().isBlank()) {
-            displayName.append(user.getFname().trim());
-        }
-
-        if (user.getLname() != null && !user.getLname().isBlank()) {
-            if (displayName.length() > 0) {
-                displayName.append(' ');
-            }
-            displayName.append(user.getLname().trim());
-        }
-
-        return displayName.length() > 0 ? displayName.toString() : user.getEmail();
+        return name.isEmpty() ? user.getEmail() : name;
     }
 
+    // Get role name
     private String roleName(int roleId) {
         Role role = roleOf(roleId);
         return role != null ? role.name() : null;
@@ -356,6 +362,7 @@ public class UserService {
         }
     }
 
+    // Get authentication type
     private String authTypeName(int authTypeId) {
         try {
             return AuthType.fromId(authTypeId).name();
@@ -364,48 +371,19 @@ public class UserService {
         }
     }
 
-    /**
-     * Profile pictures must come from the shared image service (or be an
-     * external Google avatar); arbitrary client paths are rejected.
-     */
+    // Validate profile image URL
     private boolean isAllowedImageUrl(String url) {
-        return imageUploadService.isManagedUrl(FileStorageConfig.SCOPE_PROFILE, url)
-                || url.startsWith("http://")
-                || url.startsWith("https://");
+        return fileUploadService.isOwnUrl(
+                FileUploadService.SCOPE_PROFILE, url
+        ) || url.startsWith("http://") || url.startsWith("https://");
     }
 
-    private boolean isObjectField(JsonObject object, String key) {
-        return object != null
-                && object.has(key)
-                && object.get(key).isJsonObject();
+    private static String valueOrCurrent(String value, String current) {
+        return value == null ? current : value.trim();
     }
 
-    private String stringField(JsonObject object, String key, String fallback) {
-
-        if (object == null || !object.has(key) || object.get(key).isJsonNull()) {
-            return fallback;
-        }
-
-        JsonElement element = object.get(key);
-
-        if (!element.isJsonPrimitive()) {
-            return fallback;
-        }
-
-        return element.getAsString().trim();
-    }
-
-    private Integer intField(JsonObject object, String key) {
-
-        if (object == null || !object.has(key) || object.get(key).isJsonNull()) {
-            return null;
-        }
-
-        try {
-            return object.get(key).getAsInt();
-        } catch (RuntimeException e) {
-            return null;
-        }
+    private static String trimmed(String value) {
+        return value == null ? null : value.trim();
     }
 
     private String stringValue(Object value) {
@@ -419,7 +397,9 @@ public class UserService {
         }
 
         try {
-            return value != null ? Integer.parseInt(value.toString()) : 0;
+            return value != null
+                    ? Integer.parseInt(value.toString())
+                    : 0;
         } catch (NumberFormatException e) {
             return 0;
         }

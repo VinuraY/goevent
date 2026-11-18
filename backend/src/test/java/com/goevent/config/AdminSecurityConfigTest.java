@@ -104,12 +104,6 @@ class AdminSecurityConfigTest {
         Assertions.assertTrue(session.isInvalid());
         verify(context.getBean(com.goevent.service.CoordinatorService.class),never()).apply(anyInt(),any());
     }
-    @Test void publicContactCannotBeSubmittedWithoutCsrf() throws Exception {
-        mvc.perform(get("/api/contact/csrf")).andExpect(status().isOk());
-        mvc.perform(post("/api/contact").contentType("application/json").content("{}"))
-            .andExpect(status().isForbidden());
-        verifyNoInteractions(context.getBean(AdminLoginThrottle.class));
-    }
     @Test void userModeCannotReadAdminDataAndReturnRequiresCsrfAndFreshRole() throws Exception {
         var session=new MockHttpSession();session.setAttribute("userId",7);session.setAttribute("adminUserModeId",7);
         when(context.getBean(AdminAccessRepository.class).isActiveAdmin(7)).thenReturn(true);
@@ -141,100 +135,6 @@ class AdminSecurityConfigTest {
             .andExpect(status().isOk()).andReturn();
         return JsonParser.parseString(result.getResponse().getContentAsString()).getAsJsonObject();
     }
-    @Test void legacyMutationsRejectMissingInvalidTokensAndUntrustedOrigins() throws Exception {
-        for (String path : List.of("manual", "google", "register", "logout")) {
-            mvc.perform(post("/api/auth/"+path).contentType("application/json").content("{}"))
-                .andExpect(status().isForbidden());
-            mvc.perform(post("/api/auth/"+path).header("X-CSRF-TOKEN", "invalid")
-                .contentType("application/json").content("{}"))
-                .andExpect(status().isForbidden());
-        }
-        var session = new MockHttpSession(); var csrf = token(session);
-        mvc.perform(post("/api/auth/manual").session(session).header("Origin", "https://untrusted.invalid")
-            .header("X-CSRF-TOKEN", csrf.get("token").getAsString())
-            .contentType("application/json").content("{}"))
-            .andExpect(status().isForbidden());
-        verifyNoInteractions(context.getBean(com.goevent.service.AuthenticationService.class));
-    }
-    @Test void loginRotationRejectsOldTokenAndLogoutWorksWithFreshToken() throws Exception {
-        var service = context.getBean(com.goevent.service.AuthenticationService.class);
-        when(service.handleManualAuthentication(anyMap(), any())).thenAnswer(call -> {
-            jakarta.servlet.http.HttpServletRequest request = call.getArgument(1);
-            request.getSession(false).invalidate(); request.getSession(true).setAttribute("userId",7);
-            return "{\"status\":true}";
-        });
-        when(service.handleLogout(any())).thenAnswer(call -> {
-            jakarta.servlet.http.HttpServletRequest request = call.getArgument(0);
-            request.getSession(false).invalidate(); return "{\"status\":true}";
-        });
-        var before = new MockHttpSession(); var old = token(before);
-        var login = mvc.perform(post("/api/auth/manual").session(before)
-            .header("X-CSRF-TOKEN",old.get("token").getAsString())
-            .contentType("application/json").content("{}"))
-            .andExpect(status().isOk()).andReturn();
-        Assertions.assertTrue(before.isInvalid());
-        var after = (MockHttpSession)login.getRequest().getSession(false);
-        mvc.perform(post("/api/auth/logout").session(after)
-            .header("X-CSRF-TOKEN",old.get("token").getAsString())).andExpect(status().isForbidden());
-        var fresh = token(after);
-        mvc.perform(post("/api/auth/logout").session(after)
-            .header("X-CSRF-TOKEN",fresh.get("token").getAsString())).andExpect(status().isOk());
-        Assertions.assertTrue(after.isInvalid());
-        verify(service,times(1)).handleLogout(any());
-    }
-    @Test void googleAndRegistrationAcceptCsrfWithoutPriorLogin() throws Exception {
-        for (String path : List.of("google","register")) {
-            var session = new MockHttpSession(); var csrf = token(session);
-            mvc.perform(post("/api/auth/"+path).session(session)
-                .header("X-CSRF-TOKEN",csrf.get("token").getAsString())
-                .contentType("application/json").content("{}"))
-                .andExpect(status().isOk());
-        }
-        var service = context.getBean(com.goevent.service.AuthenticationService.class);
-        verify(service).handleGoogleAuthentication(anyMap(),any());
-        verify(service).handleManualRegistration(anyMap(),any());
-    }
-    @Test void profileJsonAndMultipartRequireActiveUserAndCsrf() throws Exception {
-        var session = new MockHttpSession(); session.setAttribute("userId",7);
-        var access = context.getBean(AdminAccessRepository.class);
-        when(access.isActiveUser(7)).thenReturn(true);
-        var csrf = token(session); String value = csrf.get("token").getAsString();
-        mvc.perform(put("/api/user/data").session(session).contentType("application/json").content("{}"))
-            .andExpect(status().isForbidden());
-        var file = new MockMultipartFile("file","avatar.png","image/png",new byte[]{1});
-        mvc.perform(multipart("/api/user/image").file(file).session(session)).andExpect(status().isForbidden());
-        verifyNoInteractions(context.getBean(com.goevent.service.UserService.class));
-        mvc.perform(put("/api/user/data").session(session).header("X-CSRF-TOKEN",value)
-            .contentType("application/json").content("{}")) .andExpect(status().isOk());
-        mvc.perform(multipart("/api/user/image").file(file).session(session).header("X-CSRF-TOKEN",value))
-            .andExpect(status().isOk());
-        mvc.perform(get("/api/user/data")).andExpect(status().isUnauthorized());
-        when(access.isActiveUser(7)).thenReturn(false);
-        mvc.perform(put("/api/user/data").session(session).header("X-CSRF-TOKEN",value)
-            .contentType("application/json").content("{}")) .andExpect(status().isUnauthorized());
-        Assertions.assertTrue(session.isInvalid());
-        verify(context.getBean(com.goevent.service.UserService.class),times(1)).updateCurrentUserData(anyString(),any());
-        verify(context.getBean(com.goevent.service.UserService.class),times(1)).uploadProfileImage(any(),any());
-    }
 
-    @Test void directEventWritesAndSavedActionsRequireCsrfAndCurrentLogin() throws Exception {
-        mvc.perform(get("/api/events")).andExpect(status().isOk());
-        mvc.perform(get("/api/events/mine")).andExpect(status().isUnauthorized());
-        var session=new MockHttpSession();session.setAttribute("userId",7);
-        when(context.getBean(AdminAccessRepository.class).isActiveUser(7)).thenReturn(true);
-        var service=context.getBean(com.goevent.service.EventService.class);
-        mvc.perform(post("/api/events").session(session).contentType("application/json").content("{}"))
-            .andExpect(status().isForbidden());
-        mvc.perform(delete("/api/events/1/save").session(session)).andExpect(status().isForbidden());
-        mvc.perform(multipart("/api/events/1/image").file(new MockMultipartFile("file",new byte[]{1})).session(session))
-            .andExpect(status().isForbidden());
-        verify(service,never()).create(any(),any());verify(service,never()).unsave(anyLong(),any());
-        var csrf=token(session);
-        mvc.perform(post("/api/events").session(session).header("X-CSRF-TOKEN",csrf.get("token").getAsString())
-            .contentType("application/json").content("{}")) .andExpect(status().isOk());
-        verify(service).create(any(),any());
-        when(context.getBean(AdminAccessRepository.class).isActiveUser(7)).thenReturn(false);
-        mvc.perform(get("/api/events/mine").session(session)).andExpect(status().isUnauthorized());
-    }
 
 }

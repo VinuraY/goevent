@@ -15,8 +15,7 @@ import java.util.List;
  *   <li>{@code event.published_by} - taken from the authenticated session, never the client;</li>
  *   <li>{@code event.event_status_id} - starts as {@code APPROVED} (status id 2), so a
  *       listing-only event is usable as soon as it is created;</li>
- *   <li>{@code event.aproved_by} - stays {@code NULL}; it only records an administrator
- *       decision, and creation is not a decision.</li>
+ *   <li>{@code event.aproved_by} - stays {@code NULL}; no approval step exists yet.</li>
  * </ul>
  *
  * <p>Date and time values are ISO-8601 strings ({@code yyyy-MM-dd}, {@code HH:mm},
@@ -26,10 +25,6 @@ import java.util.List;
 public class EventDTO {
 
     /** event.name - required, varchar(100). */
-    private Integer revision;
-    public Integer getRevision() { return revision; }
-    public void setRevision(Integer revision) { this.revision = revision; }
-
     private String name;
 
     /** event.description - optional, text. */
@@ -50,7 +45,7 @@ public class EventDTO {
     /** event.event_level_id - required, references event_level.id (LISTING_ONLY/FREE/PAYED). */
     private Integer eventLevelId;
 
-    /** img.path - optional; public image path returned by ImageUploadService. */
+    /** img.path - optional; public image path returned by FileUploadService. */
     private String imagePath;
 
     /** img.bannerpath - optional banner for the event. */
@@ -182,11 +177,7 @@ public class EventDTO {
     public static class Venue {
 
         /** venue.name - required, varchar(45). */
-        private Integer revision;
-    public Integer getRevision() { return revision; }
-    public void setRevision(Integer revision) { this.revision = revision; }
-
-    private String name;
+        private String name;
 
         /** venue.address - optional, varchar(150). */
         private String address;
@@ -237,11 +228,7 @@ public class EventDTO {
     public static class Link {
 
         /** link.link_name - required, varchar(45). */
-        private Integer revision;
-    public Integer getRevision() { return revision; }
-    public void setRevision(Integer revision) { this.revision = revision; }
-
-    private String name;
+        private String name;
 
         /** link.link - required, varchar(200). */
         private String url;
