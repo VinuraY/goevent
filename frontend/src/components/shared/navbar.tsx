@@ -25,9 +25,9 @@ export const Navbar: React.FC = () => {
 
   const navLinks = [
     { label: 'Home', href: '/' },
-    { label: 'Profile', href: '/profile' },
     { label: 'Events', href: '/events' },
-    { label: 'Contact Us', href: '/contact' },
+    { label: 'Profile', href: '/profile' },
+    { label: 'Contact Us', href: '/#contact' },
   ];
 
   // Profile is only reachable with a session; guests never see the entry.

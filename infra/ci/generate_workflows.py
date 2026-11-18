@@ -33,6 +33,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+          cache: maven
       - run: mvn -B -ntp -Dmaven.compiler.release=21 -f "$MODULE/pom.xml" clean verify
         env:
           MODULE: ${{ matrix.module }}
