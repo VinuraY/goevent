@@ -376,3 +376,87 @@ exact-main Vercel preview are recorded in
 [the coordinated release review](COORDINATED-RELEASE-REVIEW.md).
 That review supersedes earlier main/digest and missing-configuration observations
 where explicitly updated. Production infrastructure changes remain unapproved.
+The later full Spring TLS probe found an additional Flyway datasource-property
+defect in main's attested backend. The review now requires the PR #74 fix and a
+new trusted-main publication before backend activation; earlier provenance/CI
+success does not establish production TLS readiness.
+The complete local TLS stack subsequently reproduced two additional mismatches:
+the old session-property prefix selected a Redis namespace outside the backend ACL,
+and the default gateway health contributor required denied INFO privileges. The
+PR candidates now bind the Boot 4 session prefix and use a PING-only health
+contributor with DOWN/error handling. The final restored-clone stack acceptance
+passed using those local candidates; new trusted-main images are still required.
+
+## Owner-approved activation update — 2026-11-18
+
+This update supersedes the earlier prepared-only infrastructure state. The owner
+explicitly approved the reviewed MySQL certificate mounts/restarts, migration
+identity, runtime privilege reduction, verified transport enforcement, runtime
+bootstrap and TCP 80/443 NSG rules. Backend release and live migrations remain
+separately gated on passing CI and release authorization.
+
+Executed and checked:
+
+- Protected MySQL Compose now has the two reviewed read-only TLS mounts; original
+  root:root 0644 metadata, service unit, disk guard and secret fetcher are preserved.
+  MySQL remains on sha256:a0225d1ea6631c8bc2385dc4c2faba17bbf1834ecf369e1659a9a382bd8d5dd7.
+- The issued DNS:mysql certificate is active. MySQL is healthy and
+  require_secure_transport=ON persists after the owning service restart. Verified
+  hostname TLS, wrong-host rejection, plaintext TCP rejection and root socket
+  administration passed. The application schema still has zero tables.
+- goevent_migration authenticates over verified TLS with only the reviewed eight
+  schema privileges. goevent_app has SELECT/INSERT/UPDATE/DELETE only and requires
+  SSL. Root/app passwords were not rotated. No application migrations were run.
+- The approved backup client now uses DNS:mysql, VERIFY_IDENTITY and the issued CA.
+  The existing encrypted backup job passed after the grant change and again after
+  enforcement. A new isolated restore uses network_mode=none, the exact MySQL image
+  and a fresh goevent-restore-20261118_restore_data volume; earlier volumes remain.
+- The approved bootstrap fetched the exact pinned Key Vault versions and installed
+  all 16 runtime files. Its --check inventory/ownership/mode validation passed.
+- Redis is running privately from the pinned 7.4 image with no public mapping.
+  TLS hostname verification and wrong-host rejection passed. Backend, gateway and
+  health identities authenticate; invalid identity/password and CONFIG operations
+  are rejected. The plaintext probe receives no PONG. Container health is healthy.
+- Only TCP 80 and 443 were added to the existing NSG. Caddy runs the previously
+  attested digest with the reviewed API configuration and persistent certificate
+  state. Let's Encrypt issuance succeeded. Public HTTPS verifies successfully
+  (curl ssl_verify_result=0), root returns its configured 404, and HTTP redirects
+  with 301 to HTTPS. This does not prove application routing: no gateway/backend
+  production containers are running.
+
+Private execution evidence and reviewed rollback remain under
+/root/goevent-mysql-review/review-20261117. Temporary operator authentication is
+isolated from the existing Managed Identity/MySQL bootstrap context. Dependency
+containers retain restart=no; reboot/startup acceptance and release unit activation
+are still outstanding. No production release policy or workflow kill switch was
+enabled, and no backend image or Flyway migration was deployed.
+
+PR #75 still fails its required Security policy check on picomatch
+CVE-2026-112366. The GitHub advisory is active, covers published versions through
+4.0.7 and has no patched release; registry latest is 4.0.7. Proposed upstream
+patches #238 and #246 remain unmerged. No scan exclusion, fabricated package
+version or required-check bypass was added. Production readiness remains blocked
+on a verified security remediation, reviewed main publication/release, live
+migration authorization, startup/recovery checks and full browser/API acceptance.
+
+### Temporary frontend security exception — owner request, 2026-11-18
+
+The owner subsequently requested temporarily blocking Trivy or downgrading
+picomatch. Downgrade does not remediate the active advisory, so the change uses
+Trivy's native expiring ignore policy instead of disabling its scanner.
+`infra/security/frontend.trivyignore.yaml` accepts only CVE-2026-112366 for
+picomatch 2.3.2/4.0.7 in the frontend bun.lock/package-lock.json filesystem scan,
+until 2026-11-25. Suppressed findings remain visible in the scan log. Infrastructure
+and container scans do not load this policy, and all other HIGH/CRITICAL findings
+still fail. This is explicit temporary risk acceptance, not a vulnerability fix or
+an assertion that the code is unexploitable. Remove it when a verified fix exists;
+expiry restores blocking without an automatic renewal. No dependency or lockfile
+version is changed. Required CI must be rerun on the new commit before merge.
+
+Validation of this exception: the existing pinned Trivy image with a freshly
+fetched vulnerability DB passed the frontend scan and displayed the suppressed
+picomatch findings. Three control scans, using that same DB, each returned exit 1
+with the advisory present: no ignore file, an expired exception, and an exception
+whose package PURLs do not match. All 42 infrastructure tests, ShellCheck for the
+modified script, repository YAML/Python/schema/protected-file verification,
+Gitleaks for the security directory and git diff --check passed.
