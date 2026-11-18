@@ -242,3 +242,36 @@ Rollback of this workflow change is to restore DELIVERY_ENABLED=false in both
 files. Already approved/uploaded intents require disabling the VM operator policy;
 reverting a workflow does not undo database changes or revoke existing blobs.
 The initial schema has no automatic DDL rollback and no previous app revision.
+
+## Approved prerequisite execution and network reservation — 2026-11-18
+
+The owner approved item 1 of the initial release review for main commit
+327cbb502a18bcc6ca552d7f4326d2e47591d23a, trusted publication 44251995644.
+Its exact backend/gateway binaries passed isolated restored-backup TLS acceptance.
+The container IMDS guard is active, host Managed Identity remains functional,
+the release-intent container's seven-day retention is now Locked, and release/
+bootstrap units are installed without starting or enabling automatic deployment.
+The real backup evidence and approved commit-bound migration file are staged.
+The VM policy remains disabled pending the separate GitHub-approved Blob intent;
+no production Flyway migration or backend/gateway start has occurred.
+
+Preflight found Redis dynamically allocated 172.29.241.2, colliding with the
+backend's static reservation. dependencies.yml now reserves 172.29.241.4 for
+Redis, leaving backend .2 and gateway .3 unchanged. The live dependency was
+recreated using a private reviewed copy of the existing dependency Compose with
+only that address change, under the same goevent-dependencies project. Redis
+remains ephemeral, private and healthy, and its verified-TLS/ACL negative checks
+passed again. MySQL and the running Caddy image/configuration were untouched.
+This is a separately managed dependency correction, not a different application
+revision or relabeling of the approved images.
+
+infra/ci/verify.py now checks that all shared application-network endpoints have
+explicit, unique addresses in the approved subnet, excluding its network,
+broadcast and gateway addresses. A regression run rejected the original dynamic
+Redis configuration and accepted the fixed configuration. This prevents a first
+or later dependency recreation from taking an application reservation again.
+
+GitHub production approval is still separate. The environment prevents self-review
+with VinuraY as sole reviewer; a different existing authorized collaborator must
+initiate the promotion for VinuraY to approve. Neither chat authorization nor the
+installed migration approval substitutes for that GitHub environment review.
