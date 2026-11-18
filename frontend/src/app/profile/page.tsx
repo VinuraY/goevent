@@ -48,10 +48,10 @@ import { EditProfileModal } from '@/components/profile/edit-profile-modal';
 import { EventCalendar } from '@/components/shared/event-calendar';
 import { SavedEventsView } from '@/components/profile/saved-events-view';
 
-type RoleView = 'USER' | 'STUDENT' | 'ORGANIZER' | 'ADMIN';
+type RoleView = 'USER' | 'STUDENT' | 'ORGANIZER';
 type TabType = 'overview' | 'my-events' | 'sales' | 'booked' | 'saved';
 
-const ROLE_VIEWS: RoleView[] = ['USER', 'STUDENT', 'ORGANIZER', 'ADMIN'];
+const ROLE_VIEWS: RoleView[] = ['USER', 'STUDENT', 'ORGANIZER'];
 
 const MONTHS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -136,14 +136,13 @@ export default function ProfilePage() {
 
   const [isCreateEventOpen, setIsCreateEventOpen] = useState(false);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
-  const [isSwitchingToAdmin, setIsSwitchingToAdmin] = useState(false);
 
   const profileQuery = useQuery({
     // Keyed by account so a different sign-in never reuses cached data.
     queryKey: ['user', 'profile', user?.userId],
     queryFn: userApi.getProfile,
     // Fire immediately on page load; a 401 also drives the redirect.
-    enabled: status !== 'guest' && !isSwitchingToAdmin,
+    enabled: status !== 'guest',
     // Always ask the backend when the page is opened.
     staleTime: 0,
     retry: false,
@@ -153,7 +152,7 @@ export default function ProfilePage() {
   const errorStatus = (profileQuery.error as { status?: number } | null)?.status;
 
   const actualRole = profile?.role || user?.roleId || 'USER';
-  const roleView: RoleView = user?.adminUserMode ? 'USER' : ROLE_VIEWS.includes(actualRole as RoleView)
+  const roleView: RoleView = ROLE_VIEWS.includes(actualRole as RoleView)
     ? (actualRole as RoleView)
     : 'USER';
 
@@ -169,26 +168,26 @@ export default function ProfilePage() {
 
   // A page visit without a session goes straight back to sign-in.
   useEffect(() => {
-    if (status === 'guest' && !isSwitchingToAdmin) {
+    if (status === 'guest') {
       router.replace('/login');
     }
-  }, [status, router, isSwitchingToAdmin]);
+  }, [status, router]);
 
   // The profile endpoint also rejects stale sessions.
   useEffect(() => {
-    if (errorStatus === 401 && !isSwitchingToAdmin) {
+    if (errorStatus === 401) {
       router.replace('/login');
     }
-  }, [errorStatus, router, isSwitchingToAdmin]);
+  }, [errorStatus, router]);
 
   const displayName = profile?.name || getDisplayName(user);
   const email = profile?.email || user?.email;
   const mobile = profile?.mobile;
   const joinedDate = formatJoinedDate(profile?.registeredDate);
-  const roleLabel = user?.adminUserMode ? 'User mode · own account' : getRoleLabel(actualRole);
-  const showCreateEvent = !user?.adminUserMode && canCreateEvents(actualRole);
+  const roleLabel = getRoleLabel(actualRole);
+  const showCreateEvent = canCreateEvents(actualRole);
 
-  // Organizers manage events; other accounts browse saved events.
+  // Organizers manage events; everyone else browses saved events.
   const isOrganizer = actualRole === 'ORGANIZER';
   // Only the default tab of each role is enabled; the others are shown disabled.
   const visibleTabs: TabType[] = isOrganizer
@@ -227,7 +226,6 @@ export default function ProfilePage() {
     USER: 'Viewing as USER. Standard attendee view with ticket booking and pass storage.',
     STUDENT: 'Viewing as STUDENT. University discounts, verified campus credentials, and student passes unlocked.',
     ORGANIZER: 'Viewing as ORGANIZER. Full event publishing, ticket tiers, and gate check-in tools unlocked.',
-    ADMIN: 'Administrator account. Open the administration workspace for platform management.',
   };
 
   return (
@@ -406,10 +404,7 @@ export default function ProfilePage() {
 
       <CreateEventModal
         open={isCreateEventOpen}
-        onClose={() => {
-          setIsCreateEventOpen(false);
-          void queryClient.invalidateQueries({ queryKey: ['events'] });
-        }}
+        onClose={() => setIsCreateEventOpen(false)}
       />
     </div>
   );

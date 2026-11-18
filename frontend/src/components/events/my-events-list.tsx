@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -13,7 +13,7 @@ import { getErrorMessage, toast } from '@/lib/toast-store';
 import { CreateEventModal } from './create-event-modal';
 
 const STATUS_STYLE: Record<string, { label: string; className: string }> = {
-  PENDING: { label: 'Legacy pending', className: 'bg-amber-100 text-amber-800' },
+  PENDING: { label: 'Pending review', className: 'bg-amber-100 text-amber-800' },
   APPROVED: { label: 'Published', className: 'bg-emerald-100 text-emerald-800' },
   REJECTED: { label: 'Rejected', className: 'bg-red-100 text-red-800' },
   DRAFT: { label: 'Draft', className: 'bg-zinc-200 text-zinc-700' },
@@ -36,9 +36,9 @@ export function MyEventsList({ onCountChange }: { onCountChange?: (count: number
     queryFn: () => eventsApi.mine(),
   });
 
-  useEffect(() => {
-    if (mineQuery.isSuccess) onCountChange?.(mineQuery.data.length);
-  }, [mineQuery.isSuccess, mineQuery.data, onCountChange]);
+  if (mineQuery.isSuccess) {
+    onCountChange?.(mineQuery.data.length);
+  }
 
   const openEditor = async (event: OwnedEvent) => {
     setLoadingId(event.id);
@@ -63,7 +63,7 @@ export function MyEventsList({ onCountChange }: { onCountChange?: (count: number
     <section className="rounded-2xl border border-[#e5e2e1] bg-white p-5 shadow-sm sm:p-6">
       <div className="mb-4">
         <h2 className="font-display text-2xl uppercase tracking-wide text-[#1c1b1b]">My events</h2>
-        <p className="text-xs text-[#736e6c]">Your events. New listings publish immediately.</p>
+        <p className="text-xs text-[#736e6c]">Events you published, with their review status.</p>
       </div>
 
       {mineQuery.isPending && <p role="status" className="py-6 text-sm text-zinc-500">Loading your events...</p>}

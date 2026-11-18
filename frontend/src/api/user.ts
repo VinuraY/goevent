@@ -1,4 +1,3 @@
-import { csrfHeaders } from './csrf';
 import { apiClient } from '@/lib/api-client';
 import { API_BASE_URL, API_ROUTES } from './routes';
 import type { OrganizationItem, UniversityItem } from './content';
@@ -124,15 +123,14 @@ export const userApi = {
   updateProfile: async (payload: UpdateProfilePayload): Promise<UserProfileResponse> => {
     const response = await apiClient.put<UserProfileResponse | string>(
       API_ROUTES.USER.DATA,
-      payload,
-      { headers: await csrfHeaders() }
+      payload
     );
 
     return parseUserResponse(response.data);
   },
 
   /**
-   * Upload a profile image (JPEG, PNG or WebP, max 2 MB).
+   * Upload a profile image (JPEG, PNG or WebP).
    */
   uploadProfileImage: async (file: File): Promise<ProfileImageUploadResponse> => {
     const formData = new FormData();
@@ -141,7 +139,7 @@ export const userApi = {
     const response = await apiClient.post<ProfileImageUploadResponse | string>(
       API_ROUTES.USER.IMAGE,
       formData,
-      { headers: { ...await csrfHeaders(), 'Content-Type': 'multipart/form-data' } }
+      { headers: { 'Content-Type': 'multipart/form-data' } }
     );
 
     return parseImageResponse(response.data);

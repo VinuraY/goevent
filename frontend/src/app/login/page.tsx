@@ -55,8 +55,7 @@ export default function LoginPage() {
       }, 1200);
     } else if (data.action === 'LOGIN') {
       // Let the success card show; the user continues via "Visit Site".
-      if (new URLSearchParams(window.location.search).get('returnTo') === '/coordinator') router.replace('/profile');
-      else setAuthSuccess(true);
+      setAuthSuccess(true);
     }
   };
 
@@ -78,16 +77,12 @@ export default function LoginPage() {
     setIsSubmitting(true);
     loading.open();
 
-    let elevatingAdmin = false;
     try {
       const response = await authApi.authenticateManual({
         email: data.email,
         password: data.password,
       });
 
-      if (response.status && response.roleId === 'ADMIN') {
-        throw new Error('This account is not available in the organizer application.');
-      }
       if (response.status) {
         await queryClient.cancelQueries();
         queryClient.clear();
@@ -100,37 +95,18 @@ export default function LoginPage() {
         // Pull the display name from the session (login response omits it).
         void useSessionStore.getState().refresh();
         // The backend created the session; the success card offers "Visit Site".
-        if (new URLSearchParams(window.location.search).get('returnTo') === '/coordinator') router.replace('/profile');
-      else setAuthSuccess(true);
+        setAuthSuccess(true);
       } else {
         toast.error(response.message || 'Invalid email or password', {
           title: 'Login failed',
         });
       }
     } catch (e) {
-      if (elevatingAdmin) {
-        useSessionStore.getState().clear();
-        queryClient.clear();
-        setValue('password', '');
-      }
       // Network/HTTP failures are normalised by the API client.
       toast.error(getErrorMessage(e), { title: 'Login failed' });
     } finally {
       setIsSubmitting(false);
       loading.close(500);
-    }
-  };
-
-  const handleQuickDemoFill = (role: 'viewer' | 'creator' | 'admin') => {
-    if (role === 'viewer') {
-      setValue('email', 'attendee@goevent.com');
-      setValue('password', 'password123');
-    } else if (role === 'creator') {
-      setValue('email', 'organizer@goevent.com');
-      setValue('password', 'password123');
-    } else {
-      setValue('email', 'admin@goevent.com');
-      setValue('password', 'password123');
     }
   };
 

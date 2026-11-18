@@ -8,7 +8,7 @@ vi.mock('@/api',()=>({
  contentApi:{getUniversities:vi.fn(),getOrganizations:vi.fn()},
 }));
 afterEach(()=>{cleanup();vi.resetAllMocks();});
-it.each(['manual','google'])('offers only User/Organizer and submits self-service organizer signup via %s', async(mode)=>{
+it.each(['manual','google'])('offers User/Organizer (Student only via Google) and submits self-service organizer signup via %s', async(mode)=>{
  vi.mocked(contentApi.getUniversities).mockResolvedValue({status:true,message:'OK',data:[]});
  vi.mocked(contentApi.getOrganizations).mockResolvedValue({status:true,message:'OK',data:[{id:1,name:'Society',type:'Club',org_type_id:1}]});
  const result={status:true,action:'REGISTERED',roleId:'ORGANIZER',userId:7};
@@ -17,7 +17,9 @@ it.each(['manual','google'])('offers only User/Organizer and submits self-servic
  render(<GoogleRoleModal isOpen onClose={vi.fn()} onSuccess={success} idToken="signed-fixture"
    manualRegistration={mode==='manual'?{fname:'Test',lname:'Organizer',email:'fixture@example.invalid',password:'fixture-pass',confirmPassword:'fixture-pass'}:undefined}/>);
  expect(screen.getByRole('button',{name:/^User/})).toBeInTheDocument();
- expect(screen.queryByRole('button',{name:/^Student/})).not.toBeInTheDocument();
+ // Manual sign-up cannot submit Student (backend accepts USER and ORGANIZER there); Google sign-up can.
+ if(mode==='manual')expect(screen.queryByRole('button',{name:/^Student/})).not.toBeInTheDocument();
+ else expect(screen.getByRole('button',{name:/^Student/})).toBeInTheDocument();
  expect(screen.queryByRole('button',{name:/^Admin/})).not.toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:/^Organizer/}));
  await screen.findByRole('option',{name:'Society (Club)'});
