@@ -4,6 +4,7 @@ import { authApi } from '@/api';
 export type SessionStatus = 'loading' | 'authenticated' | 'guest';
 
 export interface SessionUser {
+  /** Set while an admin views the site as a regular user; used by admin screens. */
   adminUserMode?: boolean;
   userId?: number;
   name?: string;
@@ -45,7 +46,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
               name: data.name,
               roleId: data.roleId,
               email: data.email,
-              adminUserMode: data.adminUserMode,
             },
           });
         } else {
@@ -74,9 +74,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 const ROLE_LABELS: Record<string, string> = {
   USER: 'Attendee',
   ORGANIZER: 'Organizer',
-  ADMIN: 'Administrator',
   STUDENT: 'Student',
-  CONTRIBUTOR: 'Contributor',
 };
 
 export function getRoleLabel(roleId?: string): string {
@@ -87,10 +85,12 @@ export function getRoleLabel(roleId?: string): string {
   return ROLE_LABELS[roleId] ?? roleId;
 }
 
+/** Organizers may publish events. */
+export function canCreateEvents(roleId?: string): boolean {
+  return roleId === 'ORGANIZER';
+}
+
 /** Name shown in the UI, falling back to the email address. */
 export function getDisplayName(user: SessionUser | null): string {
   return user?.name || user?.email || 'GoEvent member';
 }
-
-/** UI hint only; the event service rechecks active account and ownership. */
-export function canCreateEvents(role?: string): boolean { return role === "ORGANIZER"; }
