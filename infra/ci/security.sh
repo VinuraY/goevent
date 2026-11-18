@@ -12,4 +12,5 @@ gitleaks git --redact --report-format json --report-path infra/validation/report
 semgrep scan --config infra/security/semgrep.yml --error --metrics=off --json --output infra/validation/reports/sast.json backend/src gateway/src frontend/src
 scanner=aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
 docker run --rm -v "$PWD:/src:ro" "$scanner" config --skip-dirs /src/infra/validation --severity HIGH,CRITICAL --exit-code 1 /src/infra
-docker run --rm -v "$PWD/frontend:/src:ro" "$scanner" fs --include-dev-deps --scanners vuln --severity HIGH,CRITICAL --exit-code 1 /src
+# Owner-authorized, expiring exception for the frontend picomatch advisory only.
+docker run --rm -v "$PWD/frontend:/src:ro" -v "$PWD/infra/security/frontend.trivyignore.yaml:/policy/frontend.trivyignore.yaml:ro" "$scanner" fs --include-dev-deps --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --ignorefile /policy/frontend.trivyignore.yaml --show-suppressed /src
