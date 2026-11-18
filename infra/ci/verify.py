@@ -1,5 +1,5 @@
 """Syntax/schema/file-safety validation; does not touch production."""
-import ast,hashlib,json,subprocess
+import ast,hashlib,json,subprocess,ipaddress
 from pathlib import Path
 import yaml
 CADDY_ENV={'CADDY_IMAGE':'acrgoevent.azurecr.io/goevent/caddy@sha256:'+'c'*64}
@@ -23,6 +23,16 @@ for name,service in deps['services'].items():
     assert service['user']=='10001:10001' and service['read_only'] and service['cap_drop']==['ALL']
     assert name=='caddy' or not service.get('ports')
 assert deps['networks']['application']['internal'] and deps['networks']['ingress']['internal']
+# Every endpoint on this shared network needs a reservation: Docker's dynamic
+# allocator otherwise gives the first dependency the backend's reserved address.
+subnet=ipaddress.ip_network(deps['networks']['application']['ipam']['config'][0]['subnet'])
+addresses=[]
+for service in [*model['services'].values(), *deps['services'].values()]:
+    if 'application' in service['networks']:
+        address=ipaddress.ip_address((service['networks']['application'] or {}).get('ipv4_address', ''))
+        assert address in subnet and address not in (subnet.network_address, subnet.broadcast_address, subnet.network_address+1)
+        addresses.append(address)
+assert len(addresses)==len(set(addresses)), 'shared application network address collision'
 staging=json.loads(subprocess.check_output(['docker','compose','-f','infra/compose/dependencies.yml','-f','infra/compose/staging.yml','config','--format','json'],env=__import__('os').environ|CADDY_ENV|{'GOEVENT_API_DOMAIN':'localhost'},text=True))
 assert all(port['host_ip']=='127.0.0.1' for port in staging['services']['caddy']['ports'])
 print('PASS: YAML, Python, manifest schema, protected file checks')
