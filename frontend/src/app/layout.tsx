@@ -6,6 +6,7 @@ import { Navbar } from '@/components/shared/navbar';
 import { LoadingOverlay } from '@/components/ui/loading-overlay';
 import { RouteLoader } from '@/components/ui/route-loader';
 import { Toaster } from '@/components/ui/toaster';
+import { Analytics } from '@vercel/analytics/next';
 
 const bebasNeue = Bebas_Neue({
   weight: '400',
@@ -42,6 +43,7 @@ export default function RootLayout({
           <LoadingOverlay />
           <Toaster />
         </Providers>
+        <Analytics />
       </body>
     </html>
   );
