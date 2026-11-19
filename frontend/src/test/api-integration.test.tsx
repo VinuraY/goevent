@@ -42,6 +42,19 @@ it('posts login credentials to the same API prefix with cookies', async () => {
   expect(apiClient.getUri(loginCall!)).toBe('/goevent/api/auth/google');
 });
 
+it('allows the configured API host for optimized event images', async () => {
+  vi.stubEnv('API_URL', 'https://api.example.invalid');
+  vi.resetModules();
+  const { default: config } = await import('../../next.config.mjs');
+  const patterns = config.images?.remotePatterns ?? [];
+  expect(patterns).toContainEqual(
+    expect.objectContaining({ protocol: 'https', hostname: 'api.example.invalid' })
+  );
+  expect(patterns).toContainEqual(
+    expect.objectContaining({ protocol: 'https', hostname: 'images.unsplash.com' })
+  );
+});
+
 it('maps current and legacy browser prefixes to the real backend prefix', async () => {
   if (!nextConfig.rewrites) throw new Error("Missing rewrite configuration");
   const rewrites = await nextConfig.rewrites();
